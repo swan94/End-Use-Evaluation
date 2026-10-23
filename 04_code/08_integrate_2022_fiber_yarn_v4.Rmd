@@ -1,0 +1,2033 @@
+---
+title: "2022 Fiber-to-Yarn Integration Analysis"
+author: "Samantha Wan"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    code_folding: show
+    df_print: paged
+
+knit: >
+  (function(input_file, encoding) {
+
+    project_root <- normalizePath(
+      "C:/Users/sjw23099/Desktop/End-Use Evaluation",
+      winslash = "/",
+      mustWork = TRUE
+    )
+
+    output_folder <- file.path(
+      project_root,
+      "05_results",
+      "notebook_outputs"
+    )
+
+    dir.create(
+      output_folder,
+      recursive = TRUE,
+      showWarnings = FALSE
+    )
+
+    rmarkdown::render(
+      input = input_file,
+      encoding = encoding,
+      output_dir = output_folder,
+      output_file = "08_integrate_2022_fiber_yarn.html",
+      knit_root_dir = project_root
+    )
+  })
+---
+
+# Purpose
+
+This notebook integrates the 2022 fiber, processing, and yarn measurements from the
+same machine-harvested, microginned lint lots used for miniature spinning.
+
+The analysis is designed to answer four questions:
+
+1. Which initial fiber properties are associated with final yarn performance?
+2. Are upper-tail fiber-length traits such as UHML, UQL(w), L5, and fibrogram
+   upper-tail measures more informative than whole-distribution averages?
+3. Do short-fiber content, fineness/maturity, card waste, or processing-stage
+   changes help explain yarn outcomes?
+4. Can the strong pair-specific yarn response observed for DP213 be linked to a
+   distinctive fiber phenotype?
+
+The formal inferential population is the 16 NIILs (64 field samples). Parents and
+checks are retained only for descriptive correlations and figures.
+
+Because only 64 formal NIIL observations are available, this notebook avoids large
+"all predictors at once" models. Instead, it uses:
+
+- prespecified fiber predictors;
+- pairwise correlations;
+- one-predictor-at-a-time design-adjusted models;
+- a small number of biologically motivated multivariable models;
+- exploratory pair-level QTL-difference analyses.
+
+The 2022 audit identifies the microgin HVI, microgin AFIS, microgin fibrogram,
+classing-office HVI, MiniSpin AFIS, and yarn measurements as matched observations
+from the 92-sample experiment. The raw workbook is therefore read by verified
+column position to avoid duplicate variable-name collisions.
+
+```{r setup, include=FALSE}
+project_root <- normalizePath(
+  "C:/Users/sjw23099/Desktop/End-Use Evaluation",
+  winslash = "/",
+  mustWork = TRUE
+)
+
+knitr::opts_knit$set(
+  root.dir = project_root
+)
+
+source(
+  file.path(
+    project_root,
+    "04_code",
+    "00_setup.R"
+  ),
+  local = knitr::knit_global()
+)
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = TRUE,
+  message = TRUE,
+  error = FALSE,
+  fig.width = 9,
+  fig.height = 6
+)
+
+options(
+  contrasts = c(
+    "contr.sum",
+    "contr.poly"
+  )
+)
+```
+
+# 1. Required packages
+
+```{r required-packages}
+required_packages <- c(
+  "dplyr",
+  "tidyr",
+  "purrr",
+  "readr",
+  "readxl",
+  "tibble",
+  "stringr",
+  "janitor",
+  "ggplot2",
+  "lme4",
+  "lmerTest",
+  "broom.mixed"
+)
+
+missing_packages <- required_packages[
+  !vapply(
+    required_packages,
+    requireNamespace,
+    logical(1),
+    quietly = TRUE
+  )
+]
+
+if (length(missing_packages) > 0) {
+  stop(
+    "Install these packages before running the notebook: ",
+    paste(
+      missing_packages,
+      collapse = ", "
+    )
+  )
+}
+```
+
+# 2. Output directories
+
+```{r output-directories}
+integration_root <- file.path(
+  project_root,
+  "05_results",
+  "fiber_yarn_integration"
+)
+
+integration_table_dir <- file.path(
+  integration_root,
+  "tables"
+)
+
+integration_figure_dir <- file.path(
+  integration_root,
+  "figures"
+)
+
+integration_model_dir <- file.path(
+  integration_root,
+  "models"
+)
+
+purrr::walk(
+  c(
+    integration_root,
+    integration_table_dir,
+    integration_figure_dir,
+    integration_model_dir
+  ),
+  dir.create,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+write_test_file <- file.path(
+  integration_table_dir,
+  "00_WRITE_TEST.csv"
+)
+
+readr::write_csv(
+  tibble::tibble(
+    status = "write path works",
+    project_root = project_root,
+    output_folder = integration_table_dir,
+    timestamp = as.character(Sys.time())
+  ),
+  write_test_file
+)
+
+message("WRITE TEST CREATED: ", write_test_file)
+```
+
+# 3. Locate input files
+
+The cleaned yarn table is required.
+
+The original 2022 MiniSpin analysis workbook is used only for the fiber blocks.
+The script automatically checks all sheets and identifies the one containing
+approximately 92 rows and at least 114 columns.
+
+```{r locate-input-files}
+yarn_file <- file.path(
+  paths$data_processed,
+  "yarn_2022_sample_level_clean.csv"
+)
+
+raw_matches <- list.files(
+  paths$data_raw,
+  pattern = "^2022 UGA Mini-Spin Raw Data.*\\.xlsx$",
+  full.names = TRUE,
+  ignore.case = TRUE
+)
+
+if (!file.exists(yarn_file)) {
+  stop(
+    "Missing cleaned yarn file:\n",
+    yarn_file
+  )
+}
+
+if (length(raw_matches) == 0) {
+  stop(
+    "Could not find the 2022 raw MiniSpin workbook in 02_data_raw.\n",
+    "Expected a filename beginning with '2022 UGA Mini-Spin Raw Data'."
+  )
+}
+
+if (length(raw_matches) > 1) {
+  stop(
+    "More than one 2022 raw MiniSpin workbook was found:\n",
+    paste(
+      basename(raw_matches),
+      collapse = "\n"
+    )
+  )
+}
+
+raw_file <- raw_matches[[1]]
+
+input_file_audit <- tibble::tibble(
+  source = c(
+    "Cleaned yarn",
+    "2022 raw fiber/yarn workbook"
+  ),
+  file = c(
+    basename(yarn_file),
+    basename(raw_file)
+  ),
+  exists = c(
+    file.exists(yarn_file),
+    file.exists(raw_file)
+  )
+)
+
+input_file_audit
+```
+
+# 4. Identify the 92 × 114 analysis sheet
+
+```{r identify-analysis-sheet}
+raw_sheets <- readxl::excel_sheets(
+  raw_file
+)
+
+sheet_dimensions <- purrr::map_dfr(
+  raw_sheets,
+  function(sheet_name) {
+
+    test_data <- tryCatch(
+      readxl::read_excel(
+        raw_file,
+        sheet = sheet_name,
+        n_max = 100,
+        .name_repair = "unique_quiet"
+      ),
+      error = function(e) {
+        NULL
+      }
+    )
+
+    if (is.null(test_data)) {
+      return(
+        tibble::tibble(
+          sheet = sheet_name,
+          rows_read = NA_integer_,
+          columns = NA_integer_
+        )
+      )
+    }
+
+    tibble::tibble(
+      sheet = sheet_name,
+      rows_read = nrow(test_data),
+      columns = ncol(test_data)
+    )
+  }
+)
+
+sheet_dimensions
+
+candidate_sheets <- sheet_dimensions |>
+  dplyr::filter(
+    rows_read >= 90,
+    columns >= 114
+  )
+
+if (nrow(candidate_sheets) != 1) {
+  stop(
+    "The script could not uniquely identify the 92-sample, 114-column analysis sheet.\n",
+    "Review 'sheet_dimensions' above."
+  )
+}
+
+analysis_sheet <- candidate_sheets$sheet[[1]]
+
+message(
+  "Using raw analysis sheet: ",
+  analysis_sheet
+)
+```
+
+# 5. Import raw 2022 analysis table by column position
+
+The original audit documented 114 columns:
+
+- 1–2: genotype and replication;
+- 3–36: boll-sample fiber blocks;
+- 37–42: Cotton Incorporated HVI on microgin samples;
+- 43–63: Cotton Incorporated AFIS on microgin samples;
+- 64–70: Texas Tech fibrogram on microgin samples;
+- 71–74: classing-office HVI;
+- 75–95: MiniSpin AFIS;
+- 96–114: yarn traits.
+
+Only the matched microgin/fibrogram/classing/MiniSpin fiber blocks are carried
+forward here.
+
+```{r import-raw-data}
+raw_2022_unfiltered <- readxl::read_excel(
+  raw_file,
+  sheet = analysis_sheet,
+  .name_repair = "unique_quiet"
+)
+
+if (ncol(raw_2022_unfiltered) < 114) {
+  stop(
+    "Expected at least 114 columns in the raw analysis table; found ",
+    ncol(raw_2022_unfiltered),
+    "."
+  )
+}
+
+# The workbook may contain one extra title/header/spacer row in addition to the
+# 92 biological observations. Evaluate columns 1 and 2 outside dplyr so numeric
+# column positions can be used safely.
+.raw_genotype_check <- stringr::str_trim(
+  as.character(
+    raw_2022_unfiltered[[1]]
+  )
+)
+
+.raw_rep_check <- suppressWarnings(
+  as.integer(
+    raw_2022_unfiltered[[2]]
+  )
+)
+
+.keep_raw_row <- (
+  !is.na(.raw_genotype_check) &
+  .raw_genotype_check != "" &
+  !is.na(.raw_rep_check)
+)
+
+raw_2022 <- raw_2022_unfiltered[
+  .keep_raw_row,
+  ,
+  drop = FALSE
+]
+
+raw_row_audit <- tibble::tibble(
+  rows_read_from_sheet =
+    nrow(raw_2022_unfiltered),
+  rows_retained_as_observations =
+    nrow(raw_2022),
+  rows_removed_as_nondata =
+    nrow(raw_2022_unfiltered) -
+    nrow(raw_2022)
+)
+
+raw_row_audit
+
+if (nrow(raw_2022) != 92) {
+  stop(
+    "After removing non-data rows, expected 92 biological observations; found ",
+    nrow(raw_2022),
+    ". Review 'raw_2022_unfiltered' and 'raw_row_audit'."
+  )
+}
+```
+
+# 6. Extract and uniquely name matched fiber variables
+
+```{r extract-fiber-blocks}
+fiber_2022 <- tibble::tibble(
+  genotype_raw = as.character(raw_2022[[1]]),
+  rep_raw = suppressWarnings(as.integer(raw_2022[[2]])),
+
+  hvi_microgin_MIC = as.numeric(raw_2022[[37]]),
+  hvi_microgin_UHML = as.numeric(raw_2022[[38]]),
+  hvi_microgin_UI = as.numeric(raw_2022[[39]]),
+  hvi_microgin_STR = as.numeric(raw_2022[[40]]),
+  hvi_microgin_ELO = as.numeric(raw_2022[[41]]),
+  hvi_microgin_SFI = as.numeric(raw_2022[[42]]),
+
+  afis_microgin_NepSize = as.numeric(raw_2022[[43]]),
+  afis_microgin_Neps = as.numeric(raw_2022[[44]]),
+  afis_microgin_Lw = as.numeric(raw_2022[[45]]),
+  afis_microgin_LwCV = as.numeric(raw_2022[[46]]),
+  afis_microgin_UQLw = as.numeric(raw_2022[[47]]),
+  afis_microgin_SFCw = as.numeric(raw_2022[[48]]),
+  afis_microgin_Ln = as.numeric(raw_2022[[49]]),
+  afis_microgin_LnCV = as.numeric(raw_2022[[50]]),
+  afis_microgin_SFCn = as.numeric(raw_2022[[51]]),
+  afis_microgin_L5 = as.numeric(raw_2022[[52]]),
+  afis_microgin_Total = as.numeric(raw_2022[[53]]),
+  afis_microgin_TrashSize = as.numeric(raw_2022[[54]]),
+  afis_microgin_Dust = as.numeric(raw_2022[[55]]),
+  afis_microgin_Trash = as.numeric(raw_2022[[56]]),
+  afis_microgin_VFM = as.numeric(raw_2022[[57]]),
+  afis_microgin_SCNSize = as.numeric(raw_2022[[58]]),
+  afis_microgin_SCN = as.numeric(raw_2022[[59]]),
+  afis_microgin_Fine = as.numeric(raw_2022[[60]]),
+  afis_microgin_IFC = as.numeric(raw_2022[[61]]),
+  afis_microgin_MatRatio = as.numeric(raw_2022[[62]]),
+  afis_microgin_StdFine = as.numeric(raw_2022[[63]]),
+
+  fibrogram_microgin_UHMLf = as.numeric(raw_2022[[64]]),
+  fibrogram_microgin_MLf = as.numeric(raw_2022[[65]]),
+  fibrogram_microgin_UQLf = as.numeric(raw_2022[[66]]),
+  fibrogram_microgin_LHMLf = as.numeric(raw_2022[[67]]),
+  fibrogram_microgin_LQLf = as.numeric(raw_2022[[68]]),
+  fibrogram_microgin_SFCf = as.numeric(raw_2022[[69]]),
+  fibrogram_microgin_UIf = as.numeric(raw_2022[[70]]),
+
+  hvi_classing_MIC = as.numeric(raw_2022[[71]]),
+  hvi_classing_UHML = as.numeric(raw_2022[[72]]),
+  hvi_classing_UI = as.numeric(raw_2022[[73]]),
+  hvi_classing_STR = as.numeric(raw_2022[[74]]),
+
+  minispin_afis_NepSize = as.numeric(raw_2022[[75]]),
+  minispin_afis_Neps = as.numeric(raw_2022[[76]]),
+  minispin_afis_Lw = as.numeric(raw_2022[[77]]),
+  minispin_afis_LwCV = as.numeric(raw_2022[[78]]),
+  minispin_afis_UQLw = as.numeric(raw_2022[[79]]),
+  minispin_afis_SFCw = as.numeric(raw_2022[[80]]),
+  minispin_afis_Ln = as.numeric(raw_2022[[81]]),
+  minispin_afis_LnCV = as.numeric(raw_2022[[82]]),
+  minispin_afis_SFCn = as.numeric(raw_2022[[83]]),
+  minispin_afis_L5 = as.numeric(raw_2022[[84]]),
+  minispin_afis_Total = as.numeric(raw_2022[[85]]),
+  minispin_afis_TrashSize = as.numeric(raw_2022[[86]]),
+  minispin_afis_Dust = as.numeric(raw_2022[[87]]),
+  minispin_afis_Trash = as.numeric(raw_2022[[88]]),
+  minispin_afis_VFM = as.numeric(raw_2022[[89]]),
+  minispin_afis_SCNSize = as.numeric(raw_2022[[90]]),
+  minispin_afis_SCN = as.numeric(raw_2022[[91]]),
+  minispin_afis_Fine = as.numeric(raw_2022[[92]]),
+  minispin_afis_IFC = as.numeric(raw_2022[[93]]),
+  minispin_afis_MatRatio = as.numeric(raw_2022[[94]]),
+  minispin_afis_StdFine = as.numeric(raw_2022[[95]])
+)
+```
+
+# 7. Standardize genotype labels for joining
+
+```{r standardize-genotype}
+standardize_raw_genotype <- function(x) {
+
+  x <- as.character(x)
+  x <- stringr::str_replace(x, "_01$", "")
+  x <- stringr::str_replace_all(x, "[^A-Za-z0-9]", "")
+
+  dplyr::case_when(
+    x == "GA2018001" ~ "GA201800",
+    x == "GA2018081" ~ "GA201808",
+    TRUE ~ x
+  )
+}
+
+fiber_2022 <- fiber_2022 |>
+  dplyr::mutate(
+    genotype = standardize_raw_genotype(genotype_raw)
+  )
+```
+
+# 8. Import cleaned yarn and join by genotype × field replication
+
+```{r join-fiber-yarn}
+yarn_2022 <- readr::read_csv(
+  yarn_file,
+  show_col_types = FALSE
+) |>
+  dplyr::mutate(
+    genotype = as.character(genotype),
+    rep_raw = suppressWarnings(as.integer(field_rep_inferred))
+  )
+
+fiber_key_audit <- fiber_2022 |>
+  dplyr::count(
+    genotype,
+    rep_raw
+  ) |>
+  dplyr::filter(
+    n != 1
+  )
+
+if (nrow(fiber_key_audit) > 0) {
+  stop(
+    "The raw fiber table is not unique by genotype × replication."
+  )
+}
+
+yarn_key_audit <- yarn_2022 |>
+  dplyr::count(
+    genotype,
+    rep_raw
+  ) |>
+  dplyr::filter(
+    n != 1
+  )
+
+if (nrow(yarn_key_audit) > 0) {
+  stop(
+    "The cleaned yarn table is not unique by genotype × replication."
+  )
+}
+
+fiber_yarn <- yarn_2022 |>
+  dplyr::left_join(
+    fiber_2022,
+    by = c(
+      "genotype",
+      "rep_raw"
+    )
+  )
+
+join_audit <- fiber_yarn |>
+  dplyr::summarise(
+    rows = dplyr::n(),
+    matched_fiber_rows = sum(!is.na(hvi_microgin_UHML)),
+    unmatched_fiber_rows = sum(is.na(hvi_microgin_UHML))
+  )
+
+join_audit
+
+readr::write_csv(
+  join_audit,
+  file.path(integration_table_dir, "fiber_yarn_join_audit.csv"),
+  na = ""
+)
+
+if (
+  nrow(fiber_yarn) != 92 ||
+  any(is.na(fiber_yarn$hvi_microgin_UHML))
+) {
+  stop(
+    "The fiber-to-yarn join was not complete. Review genotype standardization and replication."
+  )
+}
+```
+
+# 9. Optionally integrate cleaned AFIS processing-stage data
+
+If `afis_2022_clean_wide.csv` is available, processing-stage changes are added.
+The notebook does not fail if this file is absent; the initial-fiber/yarn analysis
+still runs.
+
+```{r optional-afis-stage-data}
+afis_stage_file <- file.path(
+  paths$data_processed,
+  "afis_2022_clean_wide.csv"
+)
+
+afis_stage_available <- file.exists(
+  afis_stage_file
+)
+
+afis_stage_available
+
+if (afis_stage_available) {
+
+  afis_stage <- readr::read_csv(
+    afis_stage_file,
+    show_col_types = FALSE
+  )
+
+  required_stage_columns <- c(
+    "field_sample_id",
+    "Bale_UQL_w",
+    "Sliver_UQL_w",
+    "Bale_L5_n",
+    "Sliver_L5_n",
+    "Bale_SFC_n",
+    "Sliver_SFC_n",
+    "Bale_Nep_count",
+    "Sliver_Nep_count"
+  )
+
+  missing_stage_columns <- setdiff(
+    required_stage_columns,
+    names(afis_stage)
+  )
+
+  if (length(missing_stage_columns) > 0) {
+
+    warning(
+      "AFIS stage file exists but does not contain all expected clean columns. ",
+      "Stage-change predictors will be skipped.\nMissing: ",
+      paste(
+        missing_stage_columns,
+        collapse = ", "
+      )
+    )
+
+    afis_stage_available <- FALSE
+
+  } else {
+
+    afis_stage_small <- afis_stage |>
+      dplyr::transmute(
+        field_sample_id = as.character(field_sample_id),
+
+        bale_UQLw = Bale_UQL_w,
+        sliver_UQLw = Sliver_UQL_w,
+        delta_UQLw = Sliver_UQL_w - Bale_UQL_w,
+
+        bale_L5 = Bale_L5_n,
+        sliver_L5 = Sliver_L5_n,
+        delta_L5 = Sliver_L5_n - Bale_L5_n,
+
+        bale_SFCn = Bale_SFC_n,
+        sliver_SFCn = Sliver_SFC_n,
+        delta_SFCn = Sliver_SFC_n - Bale_SFC_n,
+
+        bale_Neps = Bale_Nep_count,
+        sliver_Neps = Sliver_Nep_count,
+        delta_Neps = Sliver_Nep_count - Bale_Nep_count
+      )
+
+    fiber_yarn <- fiber_yarn |>
+      dplyr::mutate(
+        field_sample_id = as.character(field_sample_id)
+      ) |>
+      dplyr::left_join(
+        afis_stage_small,
+        by = "field_sample_id"
+      )
+  }
+}
+```
+
+# 10. Create formal NIIL integration population
+
+```{r formal-population}
+fiber_yarn <- fiber_yarn |>
+  dplyr::mutate(
+    background = factor(
+      background,
+      levels = c(
+        "Acala",
+        "Deltapine",
+        "Georgia",
+        "Paymaster"
+      )
+    ),
+    qtl_status = factor(
+      qtl_status,
+      levels = c(
+        "Negative",
+        "Positive",
+        "Parent_Check"
+      )
+    ),
+    field_rep = factor(field_rep_inferred),
+    pair_id = interaction(
+      background,
+      nil_set,
+      drop = TRUE
+    )
+  )
+
+integration_formal <- fiber_yarn |>
+  dplyr::filter(
+    material_type == "NIIL",
+    qtl_status %in% c(
+      "Negative",
+      "Positive"
+    )
+  ) |>
+  droplevels()
+
+formal_audit <- tibble::tibble(
+  check = c(
+    "Matched 2022 samples",
+    "Formal NIIL samples",
+    "NIIL genotypes",
+    "NIL pairs"
+  ),
+  result = c(
+    nrow(fiber_yarn),
+    nrow(integration_formal),
+    dplyr::n_distinct(integration_formal$genotype),
+    dplyr::n_distinct(integration_formal$pair_id)
+  )
+)
+
+formal_audit
+
+readr::write_csv(
+  formal_audit,
+  file.path(integration_table_dir, "fiber_yarn_formal_population_audit.csv"),
+  na = ""
+)
+```
+
+# 11. Prespecify fiber predictors
+
+This list deliberately prioritizes biologically interpretable, nonredundant
+measurements.
+
+```{r predictor-list}
+initial_fiber_predictors <- c(
+  "hvi_microgin_UHML",
+  "hvi_microgin_STR",
+  "hvi_microgin_MIC",
+  "afis_microgin_UQLw",
+  "afis_microgin_L5",
+  "afis_microgin_SFCn",
+  "afis_microgin_Fine",
+  "afis_microgin_MatRatio",
+  "fibrogram_microgin_UQLf",
+  "fibrogram_microgin_SFCf"
+)
+
+supporting_fiber_predictors <- c(
+  "hvi_microgin_UI",
+  "hvi_microgin_SFI",
+  "afis_microgin_Lw",
+  "afis_microgin_Ln",
+  "afis_microgin_LwCV",
+  "afis_microgin_LnCV",
+  "afis_microgin_Neps",
+  "hvi_classing_UHML",
+  "hvi_classing_STR",
+  "minispin_afis_UQLw",
+  "minispin_afis_L5",
+  "minispin_afis_SFCn",
+  "minispin_afis_Fine",
+  "minispin_afis_MatRatio"
+)
+
+processing_predictors <- c(
+  "card_waste_pct",
+  "actual_yarn_count_ne"
+)
+
+if (afis_stage_available) {
+  processing_predictors <- c(
+    processing_predictors,
+    "delta_UQLw",
+    "delta_L5",
+    "delta_SFCn",
+    "delta_Neps",
+    "sliver_UQLw",
+    "sliver_SFCn"
+  )
+}
+
+all_fiber_predictors <- unique(
+  c(
+    initial_fiber_predictors,
+    supporting_fiber_predictors,
+    processing_predictors
+  )
+)
+```
+
+# 12. Prespecify yarn outcomes
+
+```{r yarn-outcomes}
+primary_yarn_outcomes <- c(
+  "yarn_tenacity_cn_tex",
+  "skein_mn_tex",
+  "yarn_elongation_pct",
+  "yarn_evenness_cv_pct",
+  "yarn_thin_50",
+  "yarn_thick_50",
+  "yarn_neps_200",
+  "yarn_hairiness"
+)
+
+yarn_labels <- c(
+  yarn_tenacity_cn_tex = "Single-end tenacity (cN/tex)",
+  skein_mn_tex = "Normalized skein strength (mN/tex)",
+  yarn_elongation_pct = "Single-end elongation (%)",
+  yarn_evenness_cv_pct = "Yarn evenness CV (%)",
+  yarn_thin_50 = "Thin places (-50%)",
+  yarn_thick_50 = "Thick places (+50%)",
+  yarn_neps_200 = "Neps (+200%)",
+  yarn_hairiness = "Hairiness"
+)
+```
+
+# 13. Missingness audit
+
+```{r integration-missingness}
+integration_missingness <- tibble::tibble(
+  variable = c(
+    all_fiber_predictors,
+    primary_yarn_outcomes
+  ),
+  missing_all92 = vapply(
+    c(
+      all_fiber_predictors,
+      primary_yarn_outcomes
+    ),
+    function(v) {
+      sum(is.na(fiber_yarn[[v]]))
+    },
+    integer(1)
+  ),
+  missing_formal64 = vapply(
+    c(
+      all_fiber_predictors,
+      primary_yarn_outcomes
+    ),
+    function(v) {
+      sum(is.na(integration_formal[[v]]))
+    },
+    integer(1)
+  )
+)
+
+integration_missingness
+
+readr::write_csv(
+  integration_missingness,
+  file.path(integration_table_dir, "fiber_yarn_missingness.csv"),
+  na = ""
+)
+```
+
+# 14. Pearson correlations: all 92 samples
+
+These correlations are descriptive because parents/checks are included.
+
+```{r correlations-all92}
+make_correlation_table <- function(
+  data,
+  predictors,
+  outcomes,
+  analysis_label
+) {
+
+  purrr::map_dfr(
+    outcomes,
+    function(outcome) {
+
+      purrr::map_dfr(
+        predictors,
+        function(predictor) {
+
+          x <- data[[predictor]]
+          y <- data[[outcome]]
+
+          complete <- stats::complete.cases(
+            x,
+            y
+          )
+
+          if (sum(complete) < 4) {
+            return(
+              tibble::tibble()
+            )
+          }
+
+          test <- stats::cor.test(
+            x[complete],
+            y[complete],
+            method = "pearson"
+          )
+
+          tibble::tibble(
+            analysis = analysis_label,
+            yarn_trait = outcome,
+            fiber_predictor = predictor,
+            n = sum(complete),
+            r = unname(test$estimate),
+            p_value = test$p.value
+          )
+        }
+      )
+    }
+  )
+}
+
+correlations_all92 <- make_correlation_table(
+  data = fiber_yarn,
+  predictors = all_fiber_predictors,
+  outcomes = primary_yarn_outcomes,
+  analysis_label = "All 92 samples"
+) |>
+  dplyr::group_by(
+    yarn_trait
+  ) |>
+  dplyr::mutate(
+    fdr_p = stats::p.adjust(
+      p_value,
+      method = "BH"
+    )
+  ) |>
+  dplyr::ungroup()
+
+correlations_all92 |>
+  dplyr::arrange(
+    yarn_trait,
+    fdr_p
+  )
+```
+
+# 15. Pearson correlations: formal 64 NIIL samples
+
+```{r correlations-formal64}
+correlations_formal64 <- make_correlation_table(
+  data = integration_formal,
+  predictors = all_fiber_predictors,
+  outcomes = primary_yarn_outcomes,
+  analysis_label = "Formal 64 NIIL samples"
+) |>
+  dplyr::group_by(
+    yarn_trait
+  ) |>
+  dplyr::mutate(
+    fdr_p = stats::p.adjust(
+      p_value,
+      method = "BH"
+    )
+  ) |>
+  dplyr::ungroup()
+
+correlations_formal64 |>
+  dplyr::arrange(
+    yarn_trait,
+    fdr_p
+  )
+```
+
+# 16. Tenacity-focused correlation summary
+
+```{r tenacity-correlation-summary}
+tenacity_correlations <- correlations_formal64 |>
+  dplyr::filter(
+    yarn_trait == "yarn_tenacity_cn_tex"
+  ) |>
+  dplyr::arrange(
+    fdr_p,
+    dplyr::desc(abs(r))
+  )
+
+tenacity_correlations
+
+readr::write_csv(
+  tenacity_correlations,
+  file.path(integration_table_dir, "fiber_yarn_tenacity_correlations.csv"),
+  na = ""
+)
+```
+
+# 17. Design-adjusted one-predictor mixed models
+
+For each fiber predictor and yarn outcome:
+
+`Yarn = Background + QTL + FieldRep + standardized fiber predictor + (1 | pair_id)`
+
+The fiber coefficient asks whether a fiber measurement predicts yarn performance
+after accounting for the basic NIIL design.
+
+These models are preferable to interpreting raw correlations alone.
+
+```{r adjusted-model-function}
+fit_adjusted_fiber_model <- function(
+  outcome,
+  predictor
+) {
+
+  model_data <- integration_formal |>
+    dplyr::filter(
+      !is.na(.data[[outcome]]),
+      !is.na(.data[[predictor]])
+    ) |>
+    dplyr::mutate(
+      predictor_z = as.numeric(
+        scale(.data[[predictor]])
+      )
+    ) |>
+    droplevels()
+
+  formula_object <- stats::as.formula(
+    paste0(
+      outcome,
+      " ~ background + qtl_status + field_rep + ",
+      "predictor_z + (1 | pair_id)"
+    )
+  )
+
+  fit <- tryCatch(
+    lmerTest::lmer(
+      formula_object,
+      data = model_data,
+      REML = TRUE,
+      control = lme4::lmerControl(
+        optimizer = "bobyqa",
+        optCtrl = list(
+          maxfun = 100000
+        )
+      )
+    ),
+    error = function(e) {
+      e
+    }
+  )
+
+  list(
+    outcome = outcome,
+    predictor = predictor,
+    n = nrow(model_data),
+    model = fit
+  )
+}
+```
+
+# 18. Fit all adjusted fiber-to-yarn models
+
+```{r fit-adjusted-models}
+adjusted_model_grid <- tidyr::crossing(
+  yarn_trait = primary_yarn_outcomes,
+  fiber_predictor = all_fiber_predictors
+)
+
+adjusted_model_results <- purrr::pmap(
+  adjusted_model_grid,
+  function(
+    yarn_trait,
+    fiber_predictor
+  ) {
+    fit_adjusted_fiber_model(
+      outcome = yarn_trait,
+      predictor = fiber_predictor
+    )
+  }
+)
+```
+
+# 19. Extract standardized predictor effects
+
+```{r extract-adjusted-effects}
+extract_predictor_effect <- function(result) {
+
+  if (inherits(result$model, "error")) {
+    return(
+      tibble::tibble(
+        yarn_trait = result$outcome,
+        fiber_predictor = result$predictor,
+        n = result$n,
+        estimate_per_sd = NA_real_,
+        se = NA_real_,
+        df = NA_real_,
+        t_value = NA_real_,
+        p_value = NA_real_,
+        singular = NA,
+        model_error = conditionMessage(result$model)
+      )
+    )
+  }
+
+  coef_table <- as.data.frame(
+    summary(result$model)$coefficients
+  )
+
+  if (!"predictor_z" %in% rownames(coef_table)) {
+    return(
+      tibble::tibble(
+        yarn_trait = result$outcome,
+        fiber_predictor = result$predictor,
+        n = result$n,
+        estimate_per_sd = NA_real_,
+        se = NA_real_,
+        df = NA_real_,
+        t_value = NA_real_,
+        p_value = NA_real_,
+        singular = lme4::isSingular(
+          result$model,
+          tol = 1e-4
+        ),
+        model_error = "predictor_z coefficient not found"
+      )
+    )
+  }
+
+  row <- coef_table["predictor_z", , drop = FALSE]
+
+  tibble::tibble(
+    yarn_trait = result$outcome,
+    fiber_predictor = result$predictor,
+    n = result$n,
+    estimate_per_sd = row[["Estimate"]],
+    se = row[["Std. Error"]],
+    df = row[["df"]],
+    t_value = row[["t value"]],
+    p_value = row[["Pr(>|t|)"]],
+    singular = lme4::isSingular(
+      result$model,
+      tol = 1e-4
+    ),
+    model_error = NA_character_
+  )
+}
+
+adjusted_fiber_effects <- purrr::map_dfr(
+  adjusted_model_results,
+  extract_predictor_effect
+) |>
+  dplyr::group_by(
+    yarn_trait
+  ) |>
+  dplyr::mutate(
+    fdr_p = stats::p.adjust(
+      p_value,
+      method = "BH"
+    )
+  ) |>
+  dplyr::ungroup()
+
+adjusted_fiber_effects |>
+  dplyr::arrange(
+    yarn_trait,
+    fdr_p
+  )
+```
+
+# 20. Tenacity predictor ranking
+
+```{r tenacity-adjusted-ranking}
+tenacity_adjusted_predictors <- adjusted_fiber_effects |>
+  dplyr::filter(
+    yarn_trait == "yarn_tenacity_cn_tex"
+  ) |>
+  dplyr::arrange(
+    fdr_p,
+    p_value
+  )
+
+tenacity_adjusted_predictors
+
+readr::write_csv(
+  tenacity_adjusted_predictors,
+  file.path(integration_table_dir, "fiber_yarn_tenacity_adjusted_predictor_ranking.csv"),
+  na = ""
+)
+```
+
+# 21. Small biologically motivated tenacity models
+
+Three compact models are compared:
+
+1. HVI model: UHML + bundle strength + MIC;
+2. AFIS model: UQL(w) + SFC(n) + fineness + maturity ratio;
+3. fibrogram model: UQLf + SFCf.
+
+All predictors are standardized so coefficients are directly comparable.
+
+```{r multivariable-helper}
+fit_small_tenacity_model <- function(
+  predictor_names,
+  model_name
+) {
+
+  model_data <- integration_formal |>
+    dplyr::select(
+      yarn_tenacity_cn_tex,
+      background,
+      qtl_status,
+      field_rep,
+      pair_id,
+      dplyr::all_of(
+        predictor_names
+      )
+    ) |>
+    tidyr::drop_na() |>
+    droplevels()
+
+  for (predictor in predictor_names) {
+    model_data[[paste0(predictor, "_z")]] <-
+      as.numeric(
+        scale(
+          model_data[[predictor]]
+        )
+      )
+  }
+
+  standardized_predictors <- paste0(
+    predictor_names,
+    "_z"
+  )
+
+  formula_object <- stats::as.formula(
+    paste(
+      "yarn_tenacity_cn_tex ~ background + qtl_status + field_rep +",
+      paste(
+        standardized_predictors,
+        collapse = " + "
+      ),
+      "+ (1 | pair_id)"
+    )
+  )
+
+  fit <- lmerTest::lmer(
+    formula_object,
+    data = model_data,
+    REML = FALSE,
+    control = lme4::lmerControl(
+      optimizer = "bobyqa",
+      optCtrl = list(
+        maxfun = 100000
+      )
+    )
+  )
+
+  list(
+    name = model_name,
+    predictors = predictor_names,
+    n = nrow(model_data),
+    model = fit
+  )
+}
+```
+
+```{r fit-small-tenacity-models}
+tenacity_hvi_model <- fit_small_tenacity_model(
+  predictor_names = c(
+    "hvi_microgin_UHML",
+    "hvi_microgin_STR",
+    "hvi_microgin_MIC"
+  ),
+  model_name = "HVI"
+)
+
+tenacity_afis_model <- fit_small_tenacity_model(
+  predictor_names = c(
+    "afis_microgin_UQLw",
+    "afis_microgin_SFCn",
+    "afis_microgin_Fine",
+    "afis_microgin_MatRatio"
+  ),
+  model_name = "AFIS"
+)
+
+tenacity_fibrogram_model <- fit_small_tenacity_model(
+  predictor_names = c(
+    "fibrogram_microgin_UQLf",
+    "fibrogram_microgin_SFCf"
+  ),
+  model_name = "Fibrogram"
+)
+
+tenacity_small_models <- list(
+  HVI = tenacity_hvi_model,
+  AFIS = tenacity_afis_model,
+  Fibrogram = tenacity_fibrogram_model
+)
+```
+
+# 22. Compare compact tenacity models
+
+```{r compare-small-models}
+small_model_comparison <- purrr::map_dfr(
+  tenacity_small_models,
+  function(result) {
+
+    tibble::tibble(
+      model = result$name,
+      n = result$n,
+      predictors = paste(
+        result$predictors,
+        collapse = "; "
+      ),
+      AIC = stats::AIC(
+        result$model
+      ),
+      BIC = stats::BIC(
+        result$model
+      ),
+      logLik = as.numeric(
+        stats::logLik(
+          result$model
+        )
+      ),
+      singular = lme4::isSingular(
+        result$model,
+        tol = 1e-4
+      )
+    )
+  }
+) |>
+  dplyr::arrange(
+    AIC
+  )
+
+small_model_comparison
+
+readr::write_csv(
+  small_model_comparison,
+  file.path(integration_table_dir, "fiber_yarn_tenacity_small_model_comparison.csv"),
+  na = ""
+)
+```
+
+# 23. Coefficients from compact tenacity models
+
+```{r small-model-coefficients}
+small_model_coefficients <- purrr::map_dfr(
+  tenacity_small_models,
+  function(result) {
+
+    broom.mixed::tidy(
+      result$model,
+      effects = "fixed"
+    ) |>
+      dplyr::filter(
+        stringr::str_detect(
+          term,
+          "_z$"
+        )
+      ) |>
+      dplyr::mutate(
+        model = result$name,
+        n = result$n,
+        .before = 1
+      )
+  }
+)
+
+small_model_coefficients
+
+readr::write_csv(
+  small_model_coefficients,
+  file.path(integration_table_dir, "fiber_yarn_tenacity_small_model_coefficients.csv"),
+  na = ""
+)
+```
+
+# 24. Processing-enhanced tenacity model
+
+This model asks whether actual yarn count and card waste add information beyond
+initial upper-tail fiber length.
+
+Actual yarn count is interpreted cautiously because it is itself a downstream
+processing outcome associated with qFL-Chr.25.
+
+```{r processing-tenacity-model}
+processing_model_data <- integration_formal |>
+  dplyr::select(
+    yarn_tenacity_cn_tex,
+    background,
+    qtl_status,
+    field_rep,
+    pair_id,
+    hvi_microgin_UHML,
+    afis_microgin_UQLw,
+    afis_microgin_SFCn,
+    card_waste_pct,
+    actual_yarn_count_ne
+  ) |>
+  tidyr::drop_na() |>
+  dplyr::mutate(
+    hvi_UHML_z = as.numeric(
+      scale(hvi_microgin_UHML)
+    ),
+    afis_UQLw_z = as.numeric(
+      scale(afis_microgin_UQLw)
+    ),
+    afis_SFCn_z = as.numeric(
+      scale(afis_microgin_SFCn)
+    ),
+    card_waste_z = as.numeric(
+      scale(card_waste_pct)
+    ),
+    actual_count_z = as.numeric(
+      scale(actual_yarn_count_ne)
+    )
+  ) |>
+  droplevels()
+
+tenacity_processing_model <- lmerTest::lmer(
+  yarn_tenacity_cn_tex ~
+    background +
+    qtl_status +
+    field_rep +
+    hvi_UHML_z +
+    afis_UQLw_z +
+    afis_SFCn_z +
+    card_waste_z +
+    actual_count_z +
+    (1 | pair_id),
+  data = processing_model_data,
+  REML = FALSE,
+  control = lme4::lmerControl(
+    optimizer = "bobyqa",
+    optCtrl = list(
+      maxfun = 100000
+    )
+  )
+)
+
+tenacity_processing_coefficients <- broom.mixed::tidy(
+  tenacity_processing_model,
+  effects = "fixed"
+)
+
+tenacity_processing_coefficients
+```
+
+# 25. Optional processing-stage tenacity model
+
+If the clean AFIS stage data were successfully joined, this model asks whether
+retention/change in fiber quality during MiniSpin processing predicts tenacity.
+
+```{r stage-tenacity-model}
+stage_model_results <- tibble::tibble()
+
+if (afis_stage_available) {
+
+  stage_model_data <- integration_formal |>
+    dplyr::select(
+      yarn_tenacity_cn_tex,
+      background,
+      qtl_status,
+      field_rep,
+      pair_id,
+      bale_UQLw,
+      delta_UQLw,
+      delta_SFCn,
+      delta_Neps,
+      card_waste_pct,
+      actual_yarn_count_ne
+    ) |>
+    tidyr::drop_na() |>
+    dplyr::mutate(
+      bale_UQLw_z = as.numeric(scale(bale_UQLw)),
+      delta_UQLw_z = as.numeric(scale(delta_UQLw)),
+      delta_SFCn_z = as.numeric(scale(delta_SFCn)),
+      delta_Neps_z = as.numeric(scale(delta_Neps)),
+      card_waste_z = as.numeric(scale(card_waste_pct)),
+      actual_count_z = as.numeric(scale(actual_yarn_count_ne))
+    ) |>
+    droplevels()
+
+  tenacity_stage_model <- lmerTest::lmer(
+    yarn_tenacity_cn_tex ~
+      background +
+      qtl_status +
+      field_rep +
+      bale_UQLw_z +
+      delta_UQLw_z +
+      delta_SFCn_z +
+      delta_Neps_z +
+      card_waste_z +
+      actual_count_z +
+      (1 | pair_id),
+    data = stage_model_data,
+    REML = FALSE,
+    control = lme4::lmerControl(
+      optimizer = "bobyqa",
+      optCtrl = list(
+        maxfun = 100000
+      )
+    )
+  )
+
+  stage_model_results <- broom.mixed::tidy(
+    tenacity_stage_model,
+    effects = "fixed"
+  )
+}
+
+stage_model_results
+```
+
+# 26. Pair-level QTL differences
+
+For each of the eight NIIL pairs, QTL-positive minus QTL-negative differences are
+calculated for fiber predictors and yarn outcomes.
+
+This exploratory analysis asks whether NIIL pairs showing a larger fiber response
+also show a larger yarn response.
+
+With only eight pairs, these results should be interpreted descriptively.
+
+```{r pair-level-differences}
+pair_variables <- unique(
+  c(
+    initial_fiber_predictors,
+    processing_predictors,
+    primary_yarn_outcomes
+  )
+)
+
+pair_qtl_means <- integration_formal |>
+  dplyr::group_by(
+    background,
+    nil_set,
+    qtl_status
+  ) |>
+  dplyr::summarise(
+    dplyr::across(
+      dplyr::all_of(
+        pair_variables
+      ),
+      ~ mean(
+        .x,
+        na.rm = TRUE
+      )
+    ),
+    .groups = "drop"
+  ) |>
+  tidyr::pivot_wider(
+    names_from = qtl_status,
+    values_from = dplyr::all_of(
+      pair_variables
+    ),
+    names_glue = "{.value}_{qtl_status}"
+  )
+
+pair_qtl_differences <- pair_qtl_means
+
+for (v in pair_variables) {
+  pair_qtl_differences[[paste0("delta_", v)]] <-
+    pair_qtl_differences[[paste0(v, "_Positive")]] -
+    pair_qtl_differences[[paste0(v, "_Negative")]]
+}
+
+pair_qtl_differences
+```
+
+# 27. Pair-level fiber-change versus tenacity-change correlations
+
+Spearman correlations are used because there are only eight NIL pairs.
+
+```{r pair-level-tenacity-correlations}
+pair_tenacity_correlations <- purrr::map_dfr(
+  initial_fiber_predictors,
+  function(predictor) {
+
+    x_name <- paste0(
+      "delta_",
+      predictor
+    )
+
+    y_name <- "delta_yarn_tenacity_cn_tex"
+
+    x <- pair_qtl_differences[[x_name]]
+    y <- pair_qtl_differences[[y_name]]
+
+    complete <- stats::complete.cases(
+      x,
+      y
+    )
+
+    if (sum(complete) < 5) {
+      return(
+        tibble::tibble()
+      )
+    }
+
+    test <- suppressWarnings(
+      stats::cor.test(
+        x[complete],
+        y[complete],
+        method = "spearman",
+        exact = FALSE
+      )
+    )
+
+    tibble::tibble(
+      fiber_predictor = predictor,
+      n_pairs = sum(complete),
+      spearman_rho = unname(test$estimate),
+      p_value = test$p.value
+    )
+  }
+) |>
+  dplyr::mutate(
+    fdr_p = stats::p.adjust(
+      p_value,
+      method = "BH"
+    )
+  ) |>
+  dplyr::arrange(
+    fdr_p,
+    p_value
+  )
+
+pair_tenacity_correlations
+
+readr::write_csv(
+  pair_tenacity_correlations,
+  file.path(integration_table_dir, "fiber_yarn_pair_tenacity_correlations.csv"),
+  na = ""
+)
+```
+
+# 28. DP213 targeted descriptive analysis
+
+DP213 had the strongest pair-specific tenacity response in the publication-style
+yarn analysis. This section reports QTL-positive minus QTL-negative differences
+for the prespecified fiber predictors and yarn outcomes.
+
+```{r dp213-summary}
+dp213_difference_summary <- pair_qtl_differences |>
+  dplyr::filter(
+    nil_set == "DP213"
+  ) |>
+  dplyr::select(
+    background,
+    nil_set,
+    dplyr::starts_with(
+      "delta_"
+    )
+  ) |>
+  tidyr::pivot_longer(
+    cols = dplyr::starts_with(
+      "delta_"
+    ),
+    names_to = "variable",
+    values_to = "positive_minus_negative"
+  ) |>
+  dplyr::arrange(
+    variable
+  )
+
+dp213_difference_summary
+
+readr::write_csv(
+  dp213_difference_summary,
+  file.path(integration_table_dir, "fiber_yarn_DP213_difference_summary.csv"),
+  na = ""
+)
+```
+
+# 29. Key tenacity scatterplots
+
+```{r tenacity-scatterplots}
+plot_predictors <- c(
+  "hvi_microgin_UHML",
+  "afis_microgin_UQLw",
+  "afis_microgin_L5",
+  "afis_microgin_SFCn",
+  "afis_microgin_Fine",
+  "fibrogram_microgin_UQLf"
+)
+
+for (predictor in plot_predictors) {
+
+  p <- ggplot2::ggplot(
+    integration_formal,
+    ggplot2::aes(
+      x = .data[[predictor]],
+      y = yarn_tenacity_cn_tex,
+      shape = qtl_status
+    )
+  ) +
+    ggplot2::geom_point(
+      size = 2.5
+    ) +
+    ggplot2::geom_smooth(
+      method = "lm",
+      se = TRUE
+    ) +
+    ggplot2::facet_wrap(
+      ~ background
+    ) +
+    ggplot2::labs(
+      title = paste(
+        "Yarn tenacity vs",
+        predictor
+      ),
+      x = predictor,
+      y = "Single-end tenacity (cN/tex)",
+      shape = "qFL-Chr.25"
+    ) +
+    ggplot2::theme_bw()
+
+  ggplot2::ggsave(
+    filename = file.path(
+      integration_figure_dir,
+      paste0(
+        "tenacity_vs_",
+        predictor,
+        ".png"
+      )
+    ),
+    plot = p,
+    width = 10,
+    height = 7,
+    dpi = 300
+  )
+}
+```
+
+# 30. Fiber-to-yarn correlation heatmap
+
+```{r correlation-heatmap}
+heatmap_data <- correlations_formal64 |>
+  dplyr::filter(
+    fiber_predictor %in%
+      initial_fiber_predictors
+  ) |>
+  dplyr::mutate(
+    significant_fdr = fdr_p < 0.05
+  )
+
+p_heatmap <- ggplot2::ggplot(
+  heatmap_data,
+  ggplot2::aes(
+    x = yarn_trait,
+    y = fiber_predictor,
+    fill = r
+  )
+) +
+  ggplot2::geom_tile() +
+  ggplot2::geom_text(
+    ggplot2::aes(
+      label = dplyr::if_else(
+        significant_fdr,
+        "*",
+        ""
+      )
+    )
+  ) +
+  ggplot2::labs(
+    title = "2022 matched fiber-to-yarn correlations",
+    subtitle = "Formal 64 NIIL samples; * indicates FDR < 0.05 within yarn trait",
+    x = "Yarn trait",
+    y = "Fiber predictor",
+    fill = "Pearson r"
+  ) +
+  ggplot2::theme_bw() +
+  ggplot2::theme(
+    axis.text.x = ggplot2::element_text(
+      angle = 45,
+      hjust = 1
+    )
+  )
+
+ggplot2::ggsave(
+  filename = file.path(
+    integration_figure_dir,
+    "fiber_yarn_correlation_heatmap.png"
+  ),
+  plot = p_heatmap,
+  width = 11,
+  height = 8,
+  dpi = 300
+)
+
+p_heatmap
+```
+
+# 31. Save multivariable models
+
+```{r save-models}
+saveRDS(
+  tenacity_hvi_model$model,
+  file.path(
+    integration_model_dir,
+    "tenacity_hvi_model.rds"
+  )
+)
+
+saveRDS(
+  tenacity_afis_model$model,
+  file.path(
+    integration_model_dir,
+    "tenacity_afis_model.rds"
+  )
+)
+
+saveRDS(
+  tenacity_fibrogram_model$model,
+  file.path(
+    integration_model_dir,
+    "tenacity_fibrogram_model.rds"
+  )
+)
+
+saveRDS(
+  tenacity_processing_model,
+  file.path(
+    integration_model_dir,
+    "tenacity_processing_model.rds"
+  )
+)
+
+if (afis_stage_available) {
+  saveRDS(
+    tenacity_stage_model,
+    file.path(
+      integration_model_dir,
+      "tenacity_stage_change_model.rds"
+    )
+  )
+}
+```
+
+# 32. Save analysis tables
+
+```{r save-tables}
+output_tables <- list(
+  "fiber_yarn_input_file_audit.csv" =
+    input_file_audit,
+
+  "fiber_yarn_raw_sheet_dimensions.csv" =
+    sheet_dimensions,
+
+  "fiber_yarn_raw_row_audit.csv" =
+    raw_row_audit,
+
+  "fiber_yarn_join_audit.csv" =
+    join_audit,
+
+  "fiber_yarn_formal_population_audit.csv" =
+    formal_audit,
+
+  "fiber_yarn_missingness.csv" =
+    integration_missingness,
+
+  "fiber_yarn_correlations_all92.csv" =
+    correlations_all92,
+
+  "fiber_yarn_correlations_formal64.csv" =
+    correlations_formal64,
+
+  "fiber_yarn_tenacity_correlations.csv" =
+    tenacity_correlations,
+
+  "fiber_yarn_adjusted_predictor_effects.csv" =
+    adjusted_fiber_effects,
+
+  "fiber_yarn_tenacity_adjusted_predictor_ranking.csv" =
+    tenacity_adjusted_predictors,
+
+  "fiber_yarn_tenacity_small_model_comparison.csv" =
+    small_model_comparison,
+
+  "fiber_yarn_tenacity_small_model_coefficients.csv" =
+    small_model_coefficients,
+
+  "fiber_yarn_tenacity_processing_coefficients.csv" =
+    tenacity_processing_coefficients,
+
+  "fiber_yarn_tenacity_stage_model_coefficients.csv" =
+    stage_model_results,
+
+  "fiber_yarn_pair_qtl_differences.csv" =
+    pair_qtl_differences,
+
+  "fiber_yarn_pair_tenacity_correlations.csv" =
+    pair_tenacity_correlations,
+
+  "fiber_yarn_DP213_difference_summary.csv" =
+    dp213_difference_summary
+)
+
+purrr::iwalk(
+  output_tables,
+  function(data, file_name) {
+
+    readr::write_csv(
+      data,
+      file.path(
+        integration_table_dir,
+        file_name
+      ),
+      na = ""
+    )
+  }
+)
+```
+
+# 33. Final review tables
+
+These are the most useful outputs for interpreting the manuscript story.
+
+```{r final-review}
+tenacity_correlations |>
+  dplyr::select(
+    fiber_predictor,
+    n,
+    r,
+    p_value,
+    fdr_p
+  )
+
+tenacity_adjusted_predictors |>
+  dplyr::select(
+    fiber_predictor,
+    n,
+    estimate_per_sd,
+    se,
+    p_value,
+    fdr_p,
+    singular
+  )
+
+small_model_comparison
+
+small_model_coefficients
+
+tenacity_processing_coefficients
+
+pair_tenacity_correlations
+
+dp213_difference_summary
+```
+
+# 34. Final analysis audit
+
+```{r final-audit}
+final_integration_audit <- tibble::tibble(
+  check = c(
+    "Matched samples",
+    "Formal NIIL samples",
+    "Initial fiber predictors",
+    "All fiber/processing predictors",
+    "Primary yarn outcomes",
+    "Raw correlation tests, formal NIILs",
+    "Adjusted fiber-yarn models attempted",
+    "Adjusted models with numeric predictor p-value",
+    "Adjusted models singular",
+    "AFIS processing-stage data included",
+    "NIL pairs in pair-difference analysis"
+  ),
+  result = c(
+    nrow(fiber_yarn),
+    nrow(integration_formal),
+    length(initial_fiber_predictors),
+    length(all_fiber_predictors),
+    length(primary_yarn_outcomes),
+    nrow(correlations_formal64),
+    nrow(adjusted_model_grid),
+    sum(!is.na(adjusted_fiber_effects$p_value)),
+    sum(
+      adjusted_fiber_effects$singular,
+      na.rm = TRUE
+    ),
+    as.integer(afis_stage_available),
+    nrow(pair_qtl_differences)
+  )
+)
+
+final_integration_audit
+
+readr::write_csv(
+  final_integration_audit,
+  file.path(
+    integration_table_dir,
+    "fiber_yarn_final_integration_audit.csv"
+  ),
+  na = ""
+)
+```
+
+# 35. Final status
+
+```{r final-status}
+message(
+  "\n2022 fiber-to-yarn integration analysis completed."
+)
+
+message(
+  "\nMatched samples: ",
+  nrow(fiber_yarn)
+)
+
+message(
+  "\nFormal NIIL samples: ",
+  nrow(integration_formal)
+)
+
+message(
+  "\nAFIS stage-change data included: ",
+  afis_stage_available
+)
+
+message(
+  "\nTables saved to:\n",
+  integration_table_dir
+)
+
+message(
+  "\nFigures saved to:\n",
+  integration_figure_dir
+)
+```
+
+# 36. Session information
+
+```{r session-information}
+sessionInfo()
+```

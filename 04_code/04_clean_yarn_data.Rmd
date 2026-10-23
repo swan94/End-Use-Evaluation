@@ -1,0 +1,2482 @@
+title: "2022 MiniSpin Yarn Data Cleaning"
+author: "Samantha Wan"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    code_folding: show
+    df_print: paged
+
+knit: >
+  (function(input_file, encoding) {
+
+    project_root <- normalizePath(
+      "C:/Users/sjw23099/Desktop/End-Use Evaluation",
+      winslash = "/",
+      mustWork = TRUE
+    )
+
+    output_folder <- file.path(
+      project_root,
+      "05_results",
+      "notebook_outputs"
+    )
+
+    dir.create(
+      output_folder,
+      recursive = TRUE,
+      showWarnings = FALSE
+    )
+
+    rmarkdown::render(
+      input = input_file,
+      encoding = encoding,
+      output_dir = output_folder,
+      output_file = "04_clean_yarn_data.html",
+      knit_root_dir = project_root
+    )
+  })
+---
+
+# Purpose
+
+This notebook creates analysis-ready yarn and MiniSpin processing datasets for the
+2022 qFL-Chr.25 end-use evaluation.
+
+For the 2022 end-use experiment, machine-harvested cotton was microginned and the
+same lint lot was then subsampled for fiber testing and miniature spinning. The
+validated 2022 sample key is therefore used as the authoritative link between field
+sample, genotype, NIL pair, qFL-Chr.25 status, fiber ID, Micro ID, and MiniSpin run.
+
+The raw yarn workbook contains measurements at several experimental levels:
+
+1. **field-sample/lint-lot level** — one record per 2022 sample (`n = 92`);
+2. **package/bobbin level** — two yarn packages per sample (`n = 184`);
+3. **single-end technical-replicate level** — individual tensile breaks within
+   packages (expected `n = 3680`, 20 breaks × 2 packages × 92 samples).
+
+The primary manuscript yarn analysis will use the field-sample level as the
+biological experimental unit. Package-level records are retained for confirmation
+and sensitivity analyses. Individual tensile breaks are retained for technical QC
+and are not treated as independent biological replicates.
+
+```{r setup, include=FALSE}
+project_root <- normalizePath(
+  "C:/Users/sjw23099/Desktop/End-Use Evaluation",
+  winslash = "/",
+  mustWork = TRUE
+)
+
+knitr::opts_knit$set(
+  root.dir = project_root
+)
+
+source(
+  file.path(
+    project_root,
+    "04_code",
+    "00_setup.R"
+  ),
+  local = knitr::knit_global()
+)
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = TRUE,
+  message = TRUE,
+  error = FALSE
+)
+```
+
+# 1. Check required packages
+
+```{r check-packages}
+required_packages <- c(
+  "dplyr",
+  "tidyr",
+  "purrr",
+  "readr",
+  "readxl",
+  "tibble",
+  "stringr",
+  "janitor"
+)
+
+missing_packages <- required_packages[
+  !vapply(
+    required_packages,
+    requireNamespace,
+    logical(1),
+    quietly = TRUE
+  )
+]
+
+if (length(missing_packages) > 0) {
+  stop(
+    "Install the following packages before continuing: ",
+    paste(
+      missing_packages,
+      collapse = ", "
+    )
+  )
+}
+```
+
+# 2. Create output folders
+
+```{r create-output-folders}
+yarn_output_root <- file.path(
+  project_root,
+  "05_results",
+  "yarn_cleaning"
+)
+
+yarn_audit_dir <- file.path(
+  yarn_output_root,
+  "audits"
+)
+
+purrr::walk(
+  c(
+    yarn_output_root,
+    yarn_audit_dir
+  ),
+  dir.create,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+```
+
+# 3. Locate required input files
+
+```{r locate-input-files}
+sample_key_file <- file.path(
+  paths$data_processed,
+  "sample_key_2022.csv"
+)
+
+yarn_matches <- list.files(
+  paths$data_raw,
+  pattern = "^UGA MSL Yarn Results.*\\.xlsx$",
+  full.names = TRUE,
+  ignore.case = TRUE
+)
+
+if (!file.exists(sample_key_file)) {
+  stop(
+    "The validated 2022 sample key was not found:\n",
+    sample_key_file
+  )
+}
+
+if (length(yarn_matches) == 0) {
+  stop(
+    "No UGA MSL Yarn Results workbook was found in:\n",
+    paths$data_raw
+  )
+}
+
+if (length(yarn_matches) > 1) {
+  stop(
+    "More than one UGA MSL Yarn Results workbook was found.\n",
+    "Keep only the intended raw yarn workbook in 02_data_raw, or ",
+    "update the file-selection rule.\n\n",
+    paste(
+      basename(yarn_matches),
+      collapse = "\n"
+    )
+  )
+}
+
+yarn_file <- yarn_matches[[1]]
+
+input_file_audit <- tibble::tibble(
+  file_type = c(
+    "Validated sample key",
+    "Raw yarn workbook"
+  ),
+  filename = c(
+    basename(sample_key_file),
+    basename(yarn_file)
+  ),
+  exists = c(
+    file.exists(sample_key_file),
+    file.exists(yarn_file)
+  )
+)
+
+input_file_audit
+```
+
+# 4. Validate required workbook sheets
+
+```{r validate-yarn-sheets}
+required_yarn_sheets <- c(
+  "ID Cross-Ref",
+  "Skein Avg",
+  "Skein Ind",
+  "Average Yarn Report",
+  "Overall Yarn Report",
+  "Tensorapid Indiv",
+  "MSL Processing Data"
+)
+
+available_yarn_sheets <- readxl::excel_sheets(
+  yarn_file
+)
+
+missing_yarn_sheets <- setdiff(
+  required_yarn_sheets,
+  available_yarn_sheets
+)
+
+if (length(missing_yarn_sheets) > 0) {
+  stop(
+    "The yarn workbook is missing these required sheets: ",
+    paste(
+      missing_yarn_sheets,
+      collapse = ", "
+    )
+  )
+}
+
+sheet_audit <- tibble::tibble(
+  required_sheet = required_yarn_sheets,
+  present = required_yarn_sheets %in%
+    available_yarn_sheets
+)
+
+sheet_audit
+```
+
+# 5. Import and validate the master sample key
+
+```{r import-sample-key}
+sample_key <- readr::read_csv(
+  sample_key_file,
+  show_col_types = FALSE,
+  col_types = readr::cols(
+    field_sample_id = readr::col_character(),
+    genotype = readr::col_character(),
+    background = readr::col_character(),
+    nil_set = readr::col_character(),
+    qtl_status = readr::col_character(),
+    material_type = readr::col_character(),
+    field_rep = readr::col_character(),
+    plot = readr::col_character(),
+    micro_id = readr::col_character(),
+    fiber_id = readr::col_character(),
+    minispin_run = readr::col_character(),
+    .default = readr::col_guess()
+  )
+) |>
+  janitor::clean_names() |>
+  dplyr::mutate(
+    field_sample_id = stringr::str_trim(
+      as.character(
+        field_sample_id
+      )
+    ),
+    micro_id = stringr::str_trim(
+      as.character(
+        micro_id
+      )
+    ),
+    fiber_id = stringr::str_trim(
+      as.character(
+        fiber_id
+      )
+    ),
+    minispin_run = stringr::str_trim(
+      as.character(
+        minispin_run
+      )
+    )
+  )
+
+sample_key_audit <- sample_key |>
+  dplyr::summarise(
+    rows = dplyr::n(),
+    unique_field_samples =
+      dplyr::n_distinct(
+        field_sample_id
+      ),
+    unique_micro_ids =
+      dplyr::n_distinct(
+        micro_id
+      ),
+    unique_fiber_ids =
+      dplyr::n_distinct(
+        fiber_id
+      ),
+    unique_minispin_runs =
+      dplyr::n_distinct(
+        minispin_run
+      )
+  )
+
+sample_key_audit
+
+if (nrow(sample_key) != 92) {
+  stop(
+    "The validated sample key does not contain 92 rows."
+  )
+}
+
+if (
+  anyDuplicated(sample_key$field_sample_id) > 0 ||
+  anyDuplicated(sample_key$micro_id) > 0 ||
+  anyDuplicated(sample_key$fiber_id) > 0 ||
+  anyDuplicated(sample_key$minispin_run) > 0
+) {
+  stop(
+    "Duplicate identifiers were detected in the validated sample key."
+  )
+}
+```
+
+# 6. Import the yarn cross-reference table
+
+```{r import-cross-reference}
+cross_ref_raw <- readxl::read_excel(
+  yarn_file,
+  sheet = "ID Cross-Ref",
+  col_types = "text"
+) |>
+  janitor::clean_names()
+
+required_cross_ref_columns <- c(
+  "sample",
+  "name",
+  "micro_id",
+  "plot",
+  "fiber_id",
+  "run_number",
+  "hvi_length",
+  "ratch"
+)
+
+missing_cross_ref_columns <- setdiff(
+  required_cross_ref_columns,
+  names(cross_ref_raw)
+)
+
+if (length(missing_cross_ref_columns) > 0) {
+  stop(
+    "ID Cross-Ref is missing columns: ",
+    paste(
+      missing_cross_ref_columns,
+      collapse = ", "
+    )
+  )
+}
+
+cross_ref <- cross_ref_raw |>
+  dplyr::transmute(
+    field_sample_id =
+      stringr::str_trim(
+        as.character(
+          sample
+        )
+      ),
+    workbook_name =
+      stringr::str_squish(
+        as.character(
+          name
+        )
+      ),
+    workbook_micro_id =
+      stringr::str_trim(
+        as.character(
+          micro_id
+        )
+      ),
+    workbook_plot =
+      stringr::str_trim(
+        as.character(
+          plot
+        )
+      ),
+    workbook_fiber_id =
+      stringr::str_trim(
+        as.character(
+          fiber_id
+        )
+      ),
+    workbook_minispin_run =
+      stringr::str_trim(
+        as.character(
+          run_number
+        )
+      ),
+    workbook_hvi_length =
+      suppressWarnings(
+        as.numeric(
+          hvi_length
+        )
+      ),
+    workbook_ratch =
+      suppressWarnings(
+        as.integer(
+          ratch
+        )
+      )
+  ) |>
+  dplyr::filter(
+    !is.na(
+      field_sample_id
+    ),
+    field_sample_id != ""
+  )
+
+cross_ref_audit <- tibble::tibble(
+  check = c(
+    "Rows",
+    "Unique field samples",
+    "Unique micro IDs",
+    "Unique MiniSpin runs",
+    "Ratch 3 samples",
+    "Ratch 4 samples",
+    "Ratch 5 samples",
+    "Missing ratch"
+  ),
+  result = c(
+    nrow(
+      cross_ref
+    ),
+    dplyr::n_distinct(
+      cross_ref$field_sample_id
+    ),
+    dplyr::n_distinct(
+      cross_ref$workbook_micro_id
+    ),
+    dplyr::n_distinct(
+      cross_ref$workbook_minispin_run
+    ),
+    sum(
+      cross_ref$workbook_ratch == 3,
+      na.rm = TRUE
+    ),
+    sum(
+      cross_ref$workbook_ratch == 4,
+      na.rm = TRUE
+    ),
+    sum(
+      cross_ref$workbook_ratch == 5,
+      na.rm = TRUE
+    ),
+    sum(
+      is.na(
+        cross_ref$workbook_ratch
+      )
+    )
+  )
+)
+
+cross_ref_audit
+```
+
+# 7. Verify cross-reference IDs against the validated sample key
+
+The sample key remains authoritative. The workbook cross-reference is used only as
+an independent consistency check and as the source of the ratch setting.
+
+```{r validate-cross-reference}
+cross_ref_check <- sample_key |>
+  dplyr::select(
+    field_sample_id,
+    micro_id,
+    fiber_id,
+    minispin_run,
+    ratch
+  ) |>
+  dplyr::left_join(
+    cross_ref,
+    by = "field_sample_id"
+  ) |>
+  dplyr::mutate(
+    micro_id_match =
+      micro_id == workbook_micro_id,
+    fiber_id_match =
+      fiber_id == workbook_fiber_id,
+    minispin_run_match =
+      minispin_run == workbook_minispin_run,
+    ratch_match =
+      suppressWarnings(as.integer(ratch)) == workbook_ratch
+  )
+
+cross_ref_identifier_audit <- cross_ref_check |>
+  dplyr::summarise(
+    unmatched_cross_ref_rows =
+      sum(
+        is.na(
+          workbook_minispin_run
+        )
+      ),
+    micro_id_mismatches =
+      sum(
+        !micro_id_match,
+        na.rm = TRUE
+      ),
+    fiber_id_mismatches =
+      sum(
+        !fiber_id_match,
+        na.rm = TRUE
+      ),
+    minispin_run_mismatches =
+      sum(
+        !minispin_run_match,
+        na.rm = TRUE
+      ),
+    ratch_mismatches =
+      sum(
+        !ratch_match,
+        na.rm = TRUE
+      )
+  )
+
+cross_ref_identifier_audit
+
+if (
+  cross_ref_identifier_audit$unmatched_cross_ref_rows > 0 ||
+  cross_ref_identifier_audit$micro_id_mismatches > 0 ||
+  cross_ref_identifier_audit$fiber_id_mismatches > 0 ||
+  cross_ref_identifier_audit$minispin_run_mismatches > 0 ||
+  cross_ref_identifier_audit$ratch_mismatches > 0
+) {
+  stop(
+    "The yarn cross-reference table does not match the validated sample key."
+  )
+}
+```
+
+# 8. Create authoritative yarn-sample metadata
+
+```{r create-yarn-sample-metadata}
+yarn_sample_metadata <- sample_key |>
+  dplyr::left_join(
+    cross_ref |>
+      dplyr::select(
+        field_sample_id,
+        workbook_name,
+        workbook_hvi_length
+      ),
+    by = "field_sample_id"
+  )
+
+if (any(is.na(yarn_sample_metadata$ratch))) {
+  stop(
+    "One or more samples are missing a ratch setting."
+  )
+}
+
+dplyr::glimpse(
+  yarn_sample_metadata
+)
+```
+
+# 9. Import sample-level skein averages
+
+The `Skein Avg` worksheet contains one averaged record per MiniSpin run.
+
+```{r import-skein-averages}
+skein_avg_raw <- readxl::read_excel(
+  yarn_file,
+  sheet = "Skein Avg"
+) |>
+  janitor::clean_names()
+
+skein_avg <- skein_avg_raw |>
+  dplyr::transmute(
+    minispin_run =
+      stringr::str_trim(
+        as.character(
+          fiber_id
+        )
+      ),
+    micro_id =
+      stringr::str_trim(
+        as.character(
+          micro_id
+        )
+      ),
+    skein_breaking_strength_n =
+      suppressWarnings(
+        as.numeric(
+          breaking_strength_n
+        )
+      ),
+    skein_extension_mm =
+      suppressWarnings(
+        as.numeric(
+          extension_mm
+        )
+      ),
+    skein_weight_g =
+      suppressWarnings(
+        as.numeric(
+          weight_g
+        )
+      ),
+    actual_yarn_count_ne =
+      suppressWarnings(
+        as.numeric(
+          count_ne
+        )
+      ),
+    skein_mn_tex =
+      suppressWarnings(
+        as.numeric(
+          m_n_tex
+        )
+      ),
+    skein_elongation_pct =
+      suppressWarnings(
+        as.numeric(
+          elong_percent
+        )
+      )
+  ) |>
+  dplyr::filter(
+    minispin_run %in%
+      yarn_sample_metadata$minispin_run
+  )
+
+skein_avg_audit <- skein_avg |>
+  dplyr::summarise(
+    rows = dplyr::n(),
+    unique_runs =
+      dplyr::n_distinct(
+        minispin_run
+      ),
+    unique_micro_ids =
+      dplyr::n_distinct(
+        micro_id
+      ),
+    missing_actual_yarn_count =
+      sum(
+        is.na(
+          actual_yarn_count_ne
+        )
+      )
+  )
+
+skein_avg_audit
+
+if (
+  nrow(skein_avg) != 92 ||
+  dplyr::n_distinct(
+    skein_avg$minispin_run
+  ) != 92
+) {
+  stop(
+    "Skein Avg did not resolve to exactly 92 unique MiniSpin runs."
+  )
+}
+```
+
+# 10. Import individual skein bobbin records
+
+The `Skein Ind` worksheet contains two bobbins plus a calculated average for each
+MiniSpin run. Only bobbins 1 and 2 are retained here.
+
+```{r import-individual-skein-bobbins}
+skein_ind_raw <- readxl::read_excel(
+  yarn_file,
+  sheet = "Skein Ind"
+) |>
+  janitor::clean_names() |>
+  tidyr::fill(
+    fiber_id,
+    micro_id,
+    .direction = "down"
+  )
+
+skein_bobbin <- skein_ind_raw |>
+  dplyr::mutate(
+    minispin_run =
+      stringr::str_trim(
+        as.character(
+          fiber_id
+        )
+      ),
+    micro_id =
+      stringr::str_trim(
+        as.character(
+          micro_id
+        )
+      ),
+    package =
+      suppressWarnings(
+        as.integer(
+          bobbin_number
+        )
+      )
+  ) |>
+  dplyr::filter(
+    minispin_run %in%
+      yarn_sample_metadata$minispin_run,
+    package %in% c(
+      1L,
+      2L
+    )
+  ) |>
+  dplyr::transmute(
+    minispin_run,
+    micro_id,
+    package,
+    skein_breaking_strength_n =
+      suppressWarnings(
+        as.numeric(
+          breaking_strength_n
+        )
+      ),
+    skein_extension_mm =
+      suppressWarnings(
+        as.numeric(
+          extension_mm
+        )
+      ),
+    skein_weight_g =
+      suppressWarnings(
+        as.numeric(
+          weight_g
+        )
+      ),
+    bobbin_yarn_count_ne =
+      suppressWarnings(
+        as.numeric(
+          ne
+        )
+      ),
+    skein_mn_tex =
+      suppressWarnings(
+        as.numeric(
+          m_n_tex
+        )
+      ),
+    skein_elongation_pct =
+      suppressWarnings(
+        as.numeric(
+          elong_percent
+        )
+      )
+  )
+
+skein_bobbin_audit <- skein_bobbin |>
+  dplyr::summarise(
+    rows = dplyr::n(),
+    unique_runs =
+      dplyr::n_distinct(
+        minispin_run
+      ),
+    unique_run_package =
+      dplyr::n_distinct(
+        interaction(
+          minispin_run,
+          package
+        )
+      )
+  )
+
+skein_bobbin_audit
+
+if (
+  nrow(skein_bobbin) != 184 ||
+  anyDuplicated(
+    skein_bobbin[
+      c(
+        "minispin_run",
+        "package"
+      )
+    ]
+  ) > 0
+) {
+  stop(
+    "Skein Ind did not resolve to 184 unique run-package records."
+  )
+}
+```
+
+# 11. Import sample-level single-end and evenness averages
+
+The `Average Yarn Report` has three header rows and one intentionally blank spacer
+column. To avoid fragile dependence on how `janitor::clean_names()` interprets labels
+such as `CVm % [1yd]`, the data columns are assigned explicit names by position.
+
+```{r import-average-yarn-report}
+average_yarn_raw <- readxl::read_excel(
+  yarn_file,
+  sheet = "Average Yarn Report",
+  skip = 3,
+  col_names = FALSE
+)
+
+if (ncol(average_yarn_raw) != 16) {
+  stop(
+    "Average Yarn Report did not contain the expected 16 columns."
+  )
+}
+
+names(average_yarn_raw) <- c(
+  "micro_id",
+  "run_number",
+  "b_force_n",
+  "tenacity_cn_tex",
+  "elo_percent",
+  "work_to_break_n_cm",
+  "blank_1",
+  "cv_percent",
+  "cvm_1yd_pct",
+  "cvm_3yd_pct",
+  "thin_50",
+  "thick_50",
+  "neps_200",
+  "neps_280",
+  "hairiness",
+  "sh"
+)
+
+average_yarn <- average_yarn_raw |>
+  dplyr::transmute(
+    micro_id =
+      stringr::str_trim(
+        as.character(
+          micro_id
+        )
+      ),
+    minispin_run =
+      stringr::str_trim(
+        as.character(
+          run_number
+        )
+      ),
+    single_end_break_force_n =
+      suppressWarnings(
+        as.numeric(
+          b_force_n
+        )
+      ),
+    yarn_tenacity_cn_tex =
+      suppressWarnings(
+        as.numeric(
+          tenacity_cn_tex
+        )
+      ),
+    yarn_elongation_pct =
+      suppressWarnings(
+        as.numeric(
+          elo_percent
+        )
+      ),
+    yarn_work_to_break_n_cm =
+      suppressWarnings(
+        as.numeric(
+          work_to_break_n_cm
+        )
+      ),
+    yarn_evenness_cv_pct =
+      suppressWarnings(
+        as.numeric(
+          cv_percent
+        )
+      ),
+    yarn_cvm_1yd_pct =
+      suppressWarnings(
+        as.numeric(
+          cvm_1yd_pct
+        )
+      ),
+    yarn_cvm_3yd_pct =
+      suppressWarnings(
+        as.numeric(
+          cvm_3yd_pct
+        )
+      ),
+    yarn_thin_50 =
+      suppressWarnings(
+        as.numeric(
+          thin_50
+        )
+      ),
+    yarn_thick_50 =
+      suppressWarnings(
+        as.numeric(
+          thick_50
+        )
+      ),
+    yarn_neps_200 =
+      suppressWarnings(
+        as.numeric(
+          neps_200
+        )
+      ),
+    yarn_neps_280 =
+      suppressWarnings(
+        as.numeric(
+          neps_280
+        )
+      ),
+    yarn_hairiness =
+      suppressWarnings(
+        as.numeric(
+          hairiness
+        )
+      ),
+    yarn_sh =
+      suppressWarnings(
+        as.numeric(
+          sh
+        )
+      )
+  ) |>
+  dplyr::filter(
+    minispin_run %in%
+      yarn_sample_metadata$minispin_run
+  )
+
+average_yarn_audit <- average_yarn |>
+  dplyr::summarise(
+    rows = dplyr::n(),
+    unique_runs =
+      dplyr::n_distinct(
+        minispin_run
+      ),
+    unique_micro_ids =
+      dplyr::n_distinct(
+        micro_id
+      )
+  )
+
+average_yarn_audit
+
+if (
+  nrow(average_yarn) != 92 ||
+  dplyr::n_distinct(
+    average_yarn$minispin_run
+  ) != 92
+) {
+  stop(
+    "Average Yarn Report did not resolve to exactly 92 unique MiniSpin runs."
+  )
+}
+```
+
+# 12. Import package-level yarn measurements
+
+The `Overall Yarn Report` contains two package-level records for each MiniSpin run.
+Its columns are assigned explicitly by position to avoid name-cleaning ambiguity.
+
+One known source-workbook labeling error is present in this sheet: the second
+package for Micro ID `4122` is labeled as MiniSpin run `M23072`, whereas the
+validated sample key identifies Micro ID `4122` as `M23071`. To preserve the raw
+workbook unchanged and make the correction reproducible, this notebook retains the
+raw run label for auditing but assigns the authoritative MiniSpin run by `micro_id`
+from the validated sample key.
+
+```{r import-package-level-yarn}
+package_yarn_raw <- readxl::read_excel(
+  yarn_file,
+  sheet = "Overall Yarn Report",
+  skip = 3,
+  col_names = FALSE
+)
+
+if (ncol(package_yarn_raw) != 20) {
+  stop(
+    "Overall Yarn Report did not contain the expected 20 columns."
+  )
+}
+
+names(package_yarn_raw) <- c(
+  "micro_id",
+  "run_number",
+  "package",
+  "break_strength_n",
+  "tenacity_cn_tex",
+  "elo_percent",
+  "work_to_break_n_cm",
+  "blank_1",
+  "cvm_percent",
+  "cvm_1yd_pct",
+  "cvm_3yd_pct",
+  "thin_40",
+  "thin_50",
+  "thick_35",
+  "thick_50",
+  "neps_140",
+  "neps_200",
+  "neps_280",
+  "hairiness",
+  "sh"
+)
+
+package_yarn_prepared <- package_yarn_raw |>
+  tidyr::fill(
+    micro_id,
+    run_number,
+    .direction = "down"
+  ) |>
+  dplyr::mutate(
+    micro_id =
+      stringr::str_trim(
+        as.character(
+          micro_id
+        )
+      ),
+    raw_minispin_run =
+      stringr::str_trim(
+        as.character(
+          run_number
+        )
+      ),
+    package =
+      suppressWarnings(
+        as.integer(
+          package
+        )
+      )
+  ) |>
+  dplyr::filter(
+    micro_id %in%
+      yarn_sample_metadata$micro_id,
+    package %in% c(
+      1L,
+      2L
+    )
+  ) |>
+  dplyr::left_join(
+    yarn_sample_metadata |>
+      dplyr::select(
+        micro_id,
+        minispin_run
+      ),
+    by = "micro_id"
+  ) |>
+  dplyr::mutate(
+    run_number_match =
+      raw_minispin_run == minispin_run
+  )
+
+# Audit any raw workbook run labels that disagree with the validated sample key.
+package_run_corrections <- package_yarn_prepared |>
+  dplyr::filter(
+    !is.na(
+      raw_minispin_run
+    ),
+    !is.na(
+      minispin_run
+    ),
+    !run_number_match
+  ) |>
+  dplyr::select(
+    micro_id,
+    package,
+    raw_minispin_run,
+    corrected_minispin_run = minispin_run
+  ) |>
+  dplyr::arrange(
+    micro_id,
+    package
+  )
+
+package_run_corrections
+
+package_run_correction_audit <- tibble::tibble(
+  check = c(
+    "Raw package rows retained",
+    "Run-label mismatches corrected",
+    "Unmatched Micro IDs after authoritative join"
+  ),
+  result = c(
+    nrow(
+      package_yarn_prepared
+    ),
+    nrow(
+      package_run_corrections
+    ),
+    sum(
+      is.na(
+        package_yarn_prepared$minispin_run
+      )
+    )
+  )
+)
+
+package_run_correction_audit
+
+if (
+  any(
+    is.na(
+      package_yarn_prepared$minispin_run
+    )
+  )
+) {
+  stop(
+    "One or more Overall Yarn Report records could not be linked to ",
+    "an authoritative MiniSpin run using Micro ID."
+  )
+}
+
+package_yarn <- package_yarn_prepared |>
+  dplyr::transmute(
+    minispin_run,
+    micro_id,
+    package,
+    raw_minispin_run,
+    run_number_corrected =
+      !run_number_match,
+    single_end_break_force_n =
+      suppressWarnings(
+        as.numeric(
+          break_strength_n
+        )
+      ),
+    yarn_tenacity_cn_tex =
+      suppressWarnings(
+        as.numeric(
+          tenacity_cn_tex
+        )
+      ),
+    yarn_elongation_pct =
+      suppressWarnings(
+        as.numeric(
+          elo_percent
+        )
+      ),
+    yarn_work_to_break_n_cm =
+      suppressWarnings(
+        as.numeric(
+          work_to_break_n_cm
+        )
+      ),
+    yarn_evenness_cv_pct =
+      suppressWarnings(
+        as.numeric(
+          cvm_percent
+        )
+      ),
+    yarn_cvm_1yd_pct =
+      suppressWarnings(
+        as.numeric(
+          cvm_1yd_pct
+        )
+      ),
+    yarn_cvm_3yd_pct =
+      suppressWarnings(
+        as.numeric(
+          cvm_3yd_pct
+        )
+      ),
+    yarn_thin_40 =
+      suppressWarnings(
+        as.numeric(
+          thin_40
+        )
+      ),
+    yarn_thin_50 =
+      suppressWarnings(
+        as.numeric(
+          thin_50
+        )
+      ),
+    yarn_thick_35 =
+      suppressWarnings(
+        as.numeric(
+          thick_35
+        )
+      ),
+    yarn_thick_50 =
+      suppressWarnings(
+        as.numeric(
+          thick_50
+        )
+      ),
+    yarn_neps_140 =
+      suppressWarnings(
+        as.numeric(
+          neps_140
+        )
+      ),
+    yarn_neps_200 =
+      suppressWarnings(
+        as.numeric(
+          neps_200
+        )
+      ),
+    yarn_neps_280 =
+      suppressWarnings(
+        as.numeric(
+          neps_280
+        )
+      ),
+    yarn_hairiness =
+      suppressWarnings(
+        as.numeric(
+          hairiness
+        )
+      ),
+    yarn_sh =
+      suppressWarnings(
+        as.numeric(
+          sh
+        )
+      )
+  )
+
+package_yarn_audit <- package_yarn |>
+  dplyr::summarise(
+    rows = dplyr::n(),
+    unique_runs =
+      dplyr::n_distinct(
+        minispin_run
+      ),
+    unique_run_package =
+      dplyr::n_distinct(
+        interaction(
+          minispin_run,
+          package
+        )
+      ),
+    corrected_run_labels =
+      sum(
+        run_number_corrected,
+        na.rm = TRUE
+      )
+  )
+
+package_yarn_audit
+
+if (
+  nrow(package_yarn) != 184 ||
+  dplyr::n_distinct(
+    package_yarn$minispin_run
+  ) != 92 ||
+  anyDuplicated(
+    package_yarn[
+      c(
+        "minispin_run",
+        "package"
+      )
+    ]
+  ) > 0
+) {
+  stop(
+    "Overall Yarn Report did not resolve to 184 unique run-package records ",
+    "after authoritative MiniSpin-run assignment."
+  )
+}
+```
+
+# 13. Import individual single-end tensile breaks
+
+Each package is expected to contain 20 single-end tensile breaks. These are
+technical replicates and are retained for QC and optional hierarchical sensitivity
+analysis.
+
+```{r import-individual-breaks}
+single_end_raw <- readxl::read_excel(
+  yarn_file,
+  sheet = "Tensorapid Indiv",
+  skip = 3,
+  col_names = FALSE
+)
+
+if (ncol(single_end_raw) != 8) {
+  stop(
+    "Tensorapid Indiv did not contain the expected 8 columns."
+  )
+}
+
+names(single_end_raw) <- c(
+  "micro_id",
+  "package",
+  "technical_rep",
+  "time_to_break",
+  "break_strength_n",
+  "elo_percent",
+  "tenacity_cn_tex",
+  "work_to_break_n_cm"
+)
+
+single_end_breaks <- single_end_raw |>
+  dplyr::mutate(
+    micro_id =
+      stringr::str_trim(
+        as.character(
+          micro_id
+        )
+      ),
+    package =
+      suppressWarnings(
+        as.integer(
+          package
+        )
+      ),
+    technical_rep =
+      suppressWarnings(
+        as.integer(
+          technical_rep
+        )
+      )
+  ) |>
+  dplyr::filter(
+    micro_id %in%
+      yarn_sample_metadata$micro_id,
+    package %in% c(
+      1L,
+      2L
+    ),
+    technical_rep >= 1L,
+    technical_rep <= 20L
+  ) |>
+  dplyr::transmute(
+    micro_id,
+    package,
+    technical_rep,
+    time_to_break =
+      suppressWarnings(
+        as.numeric(
+          time_to_break
+        )
+      ),
+    single_end_break_force_n =
+      suppressWarnings(
+        as.numeric(
+          break_strength_n
+        )
+      ),
+    yarn_elongation_pct =
+      suppressWarnings(
+        as.numeric(
+          elo_percent
+        )
+      ),
+    yarn_tenacity_cn_tex =
+      suppressWarnings(
+        as.numeric(
+          tenacity_cn_tex
+        )
+      ),
+    yarn_work_to_break_n_cm =
+      suppressWarnings(
+        as.numeric(
+          work_to_break_n_cm
+        )
+      )
+  )
+
+break_count_audit <- single_end_breaks |>
+  dplyr::count(
+    micro_id,
+    package,
+    name = "n_breaks"
+  ) |>
+  dplyr::arrange(
+    micro_id,
+    package
+  )
+
+break_count_summary <- break_count_audit |>
+  dplyr::count(
+    n_breaks,
+    name = "n_packages"
+  )
+
+break_count_summary
+
+if (
+  nrow(single_end_breaks) != 3680 ||
+  any(
+    break_count_audit$n_breaks != 20
+  )
+) {
+  warning(
+    "The individual-break dataset does not contain exactly ",
+    "20 breaks for every package. Review the break-count audit."
+  )
+}
+```
+
+# 14. Import MiniSpin processing data
+
+The `MSL Processing Data` worksheet contains a title row above the actual headers,
+so the sheet is imported with `skip = 1`.
+
+```{r import-processing-data}
+processing_raw <- readxl::read_excel(
+  yarn_file,
+  sheet = "MSL Processing Data",
+  skip = 1
+) |>
+  janitor::clean_names()
+
+processing <- processing_raw |>
+  dplyr::transmute(
+    micro_id =
+      stringr::str_trim(
+        as.character(
+          fiber_id
+        )
+      ),
+    minispin_run =
+      stringr::str_trim(
+        as.character(
+          process_id
+        )
+      ),
+    card_temp_f =
+      suppressWarnings(
+        as.numeric(
+          card_temp_f
+        )
+      ),
+    card_rh_pct =
+      suppressWarnings(
+        as.numeric(
+          card_rh_percent
+        )
+      ),
+    card_in_g =
+      suppressWarnings(
+        as.numeric(
+          card_in_g
+        )
+      ),
+    card_out_g =
+      suppressWarnings(
+        as.numeric(
+          card_out_g
+        )
+      ),
+    card_waste_g =
+      suppressWarnings(
+        as.numeric(
+          waste_g
+        )
+      ),
+    card_waste_pct =
+      suppressWarnings(
+        as.numeric(
+          waste_percent
+        )
+      ),
+    card_web_gr_yd =
+      suppressWarnings(
+        as.numeric(
+          card_web_gr_yd
+        )
+      ),
+    drawing_1_g =
+      suppressWarnings(
+        as.numeric(
+          d1_g
+        )
+      ),
+    drawing_1_gr_yd =
+      suppressWarnings(
+        as.numeric(
+          d1_gr_yd
+        )
+      ),
+    drawing_2_g =
+      suppressWarnings(
+        as.numeric(
+          d2_g
+        )
+      ),
+    drawing_2_gr_yd =
+      suppressWarnings(
+        as.numeric(
+          d2_gr_yd
+        )
+      ),
+    drawing_3_g =
+      suppressWarnings(
+        as.numeric(
+          d3_g
+        )
+      ),
+    drawing_3_gr_yd =
+      suppressWarnings(
+        as.numeric(
+          d3_gr_yd
+        )
+      ),
+    spin_temp_f =
+      suppressWarnings(
+        as.numeric(
+          spin_temp_f
+        )
+      ),
+    spin_rh_pct =
+      suppressWarnings(
+        as.numeric(
+          spin_rh_percent
+        )
+      ),
+    nominal_yarn_count_ne =
+      suppressWarnings(
+        as.numeric(
+          nom_count
+        )
+      )
+  ) |>
+  dplyr::filter(
+    minispin_run %in%
+      yarn_sample_metadata$minispin_run
+  )
+
+processing_audit <- processing |>
+  dplyr::summarise(
+    rows = dplyr::n(),
+    unique_runs =
+      dplyr::n_distinct(
+        minispin_run
+      ),
+    missing_card_waste_pct =
+      sum(
+        is.na(
+          card_waste_pct
+        )
+      ),
+    missing_nominal_count =
+      sum(
+        is.na(
+          nominal_yarn_count_ne
+        )
+      )
+  )
+
+processing_audit
+
+if (
+  nrow(processing) != 92 ||
+  dplyr::n_distinct(
+    processing$minispin_run
+  ) != 92
+) {
+  stop(
+    "MSL Processing Data did not resolve to exactly 92 unique MiniSpin runs."
+  )
+}
+```
+
+# 15. Verify IDs across all sample-level yarn tables
+
+```{r sample-level-id-audit}
+sample_level_id_audit <- yarn_sample_metadata |>
+  dplyr::select(
+    field_sample_id,
+    micro_id,
+    minispin_run
+  ) |>
+  dplyr::left_join(
+    skein_avg |>
+      dplyr::select(
+        minispin_run,
+        skein_micro_id = micro_id
+      ),
+    by = "minispin_run"
+  ) |>
+  dplyr::left_join(
+    average_yarn |>
+      dplyr::select(
+        minispin_run,
+        average_yarn_micro_id = micro_id
+      ),
+    by = "minispin_run"
+  ) |>
+  dplyr::left_join(
+    processing |>
+      dplyr::select(
+        minispin_run,
+        processing_micro_id = micro_id
+      ),
+    by = "minispin_run"
+  ) |>
+  dplyr::mutate(
+    skein_micro_match =
+      micro_id == skein_micro_id,
+    average_yarn_micro_match =
+      micro_id == average_yarn_micro_id,
+    processing_micro_match =
+      micro_id == processing_micro_id
+  )
+
+sample_level_id_summary <- sample_level_id_audit |>
+  dplyr::summarise(
+    missing_skein_avg =
+      sum(
+        is.na(
+          skein_micro_id
+        )
+      ),
+    missing_average_yarn =
+      sum(
+        is.na(
+          average_yarn_micro_id
+        )
+      ),
+    missing_processing =
+      sum(
+        is.na(
+          processing_micro_id
+        )
+      ),
+    skein_micro_mismatch =
+      sum(
+        !skein_micro_match,
+        na.rm = TRUE
+      ),
+    average_yarn_micro_mismatch =
+      sum(
+        !average_yarn_micro_match,
+        na.rm = TRUE
+      ),
+    processing_micro_mismatch =
+      sum(
+        !processing_micro_match,
+        na.rm = TRUE
+      )
+  )
+
+sample_level_id_summary
+
+if (
+  any(
+    unlist(
+      sample_level_id_summary
+    ) != 0
+  )
+) {
+  stop(
+    "One or more yarn tables failed the MiniSpin/Micro-ID linkage audit."
+  )
+}
+```
+
+# 16. Create the final sample-level yarn dataset
+
+This is the primary analysis-ready yarn dataset. There is one row per biological
+field sample/lint lot.
+
+```{r create-sample-level-dataset}
+yarn_sample_clean <- yarn_sample_metadata |>
+  dplyr::left_join(
+    skein_avg |>
+      dplyr::select(
+        -micro_id
+      ),
+    by = "minispin_run"
+  ) |>
+  dplyr::left_join(
+    average_yarn |>
+      dplyr::select(
+        -micro_id
+      ),
+    by = "minispin_run"
+  ) |>
+  dplyr::left_join(
+    processing |>
+      dplyr::select(
+        -micro_id
+      ),
+    by = "minispin_run"
+  ) |>
+  dplyr::mutate(
+    actual_minus_nominal_count_ne =
+      actual_yarn_count_ne -
+      nominal_yarn_count_ne,
+    absolute_count_deviation_ne =
+      abs(
+        actual_minus_nominal_count_ne
+      )
+  ) |>
+  dplyr::arrange(
+    field_sample_id
+  )
+
+dplyr::glimpse(
+  yarn_sample_clean
+)
+
+if (
+  nrow(yarn_sample_clean) != 92 ||
+  anyDuplicated(
+    yarn_sample_clean$field_sample_id
+  ) > 0
+) {
+  stop(
+    "The final sample-level yarn dataset is not 92 unique field samples."
+  )
+}
+```
+
+# 17. Create the final package-level yarn dataset
+
+Skein bobbin measurements and package-level Uster/UTR4 measurements are combined
+using MiniSpin run and package number.
+
+```{r create-package-level-dataset}
+yarn_package_clean <- package_yarn |>
+  dplyr::left_join(
+    skein_bobbin,
+    by = c(
+      "minispin_run",
+      "micro_id",
+      "package"
+    )
+  ) |>
+  dplyr::left_join(
+    yarn_sample_metadata,
+    by = c(
+      "minispin_run",
+      "micro_id"
+    )
+  ) |>
+  dplyr::arrange(
+    field_sample_id,
+    package
+  )
+
+dplyr::glimpse(
+  yarn_package_clean
+)
+
+if (
+  nrow(yarn_package_clean) != 184 ||
+  anyDuplicated(
+    yarn_package_clean[
+      c(
+        "field_sample_id",
+        "package"
+      )
+    ]
+  ) > 0
+) {
+  stop(
+    "The final package-level yarn dataset is not 184 unique sample-package records."
+  )
+}
+```
+
+# 18. Attach sample metadata to the individual-break dataset
+
+```{r create-break-level-dataset}
+yarn_single_end_breaks_clean <- single_end_breaks |>
+  dplyr::left_join(
+    yarn_sample_metadata,
+    by = "micro_id"
+  ) |>
+  dplyr::arrange(
+    field_sample_id,
+    package,
+    technical_rep
+  )
+
+unmatched_breaks <- yarn_single_end_breaks_clean |>
+  dplyr::filter(
+    is.na(
+      field_sample_id
+    )
+  )
+
+if (nrow(unmatched_breaks) > 0) {
+  stop(
+    "One or more individual tensile breaks could not be linked to the sample key."
+  )
+}
+```
+
+# 19. Check that sample averages reproduce the two-package averages
+
+This audit confirms that the sample-level `Average Yarn Report` values are
+consistent with the arithmetic means of the two package-level records in the
+`Overall Yarn Report`.
+
+The package-level yarn variables retain their original cleaned names after the
+join because the skein-bobbin table contains distinct `skein_*` variables. No
+`.x`/`.y` suffixes are therefore expected for the Uster/UTR4 package traits.
+
+```{r verify-package-averages}
+package_mean_check <- yarn_package_clean |>
+  dplyr::group_by(
+    field_sample_id,
+    minispin_run
+  ) |>
+  dplyr::summarise(
+    pkg_mean_break_force =
+      mean(
+        single_end_break_force_n,
+        na.rm = TRUE
+      ),
+    pkg_mean_tenacity =
+      mean(
+        yarn_tenacity_cn_tex,
+        na.rm = TRUE
+      ),
+    pkg_mean_elongation =
+      mean(
+        yarn_elongation_pct,
+        na.rm = TRUE
+      ),
+    pkg_mean_work_to_break =
+      mean(
+        yarn_work_to_break_n_cm,
+        na.rm = TRUE
+      ),
+    pkg_mean_evenness =
+      mean(
+        yarn_evenness_cv_pct,
+        na.rm = TRUE
+      ),
+    pkg_mean_thin50 =
+      mean(
+        yarn_thin_50,
+        na.rm = TRUE
+      ),
+    pkg_mean_thick50 =
+      mean(
+        yarn_thick_50,
+        na.rm = TRUE
+      ),
+    pkg_mean_neps200 =
+      mean(
+        yarn_neps_200,
+        na.rm = TRUE
+      ),
+    pkg_mean_neps280 =
+      mean(
+        yarn_neps_280,
+        na.rm = TRUE
+      ),
+    pkg_mean_hairiness =
+      mean(
+        yarn_hairiness,
+        na.rm = TRUE
+      ),
+    .groups = "drop"
+  ) |>
+  dplyr::left_join(
+    yarn_sample_clean |>
+      dplyr::select(
+        field_sample_id,
+        single_end_break_force_n,
+        yarn_tenacity_cn_tex,
+        yarn_elongation_pct,
+        yarn_work_to_break_n_cm,
+        yarn_evenness_cv_pct,
+        yarn_thin_50,
+        yarn_thick_50,
+        yarn_neps_200,
+        yarn_neps_280,
+        yarn_hairiness
+      ),
+    by = "field_sample_id"
+  ) |>
+  dplyr::mutate(
+    diff_break_force =
+      pkg_mean_break_force -
+      single_end_break_force_n,
+    diff_tenacity =
+      pkg_mean_tenacity -
+      yarn_tenacity_cn_tex,
+    diff_elongation =
+      pkg_mean_elongation -
+      yarn_elongation_pct,
+    diff_work_to_break =
+      pkg_mean_work_to_break -
+      yarn_work_to_break_n_cm,
+    diff_evenness =
+      pkg_mean_evenness -
+      yarn_evenness_cv_pct,
+    diff_thin50 =
+      pkg_mean_thin50 -
+      yarn_thin_50,
+    diff_thick50 =
+      pkg_mean_thick50 -
+      yarn_thick_50,
+    diff_neps200 =
+      pkg_mean_neps200 -
+      yarn_neps_200,
+    diff_neps280 =
+      pkg_mean_neps280 -
+      yarn_neps_280,
+    diff_hairiness =
+      pkg_mean_hairiness -
+      yarn_hairiness
+  )
+
+package_mean_difference_summary <- package_mean_check |>
+  dplyr::summarise(
+    max_abs_break_force_diff =
+      max(
+        abs(
+          diff_break_force
+        ),
+        na.rm = TRUE
+      ),
+    max_abs_tenacity_diff =
+      max(
+        abs(
+          diff_tenacity
+        ),
+        na.rm = TRUE
+      ),
+    max_abs_elongation_diff =
+      max(
+        abs(
+          diff_elongation
+        ),
+        na.rm = TRUE
+      ),
+    max_abs_work_to_break_diff =
+      max(
+        abs(
+          diff_work_to_break
+        ),
+        na.rm = TRUE
+      ),
+    max_abs_evenness_diff =
+      max(
+        abs(
+          diff_evenness
+        ),
+        na.rm = TRUE
+      ),
+    max_abs_thin50_diff =
+      max(
+        abs(
+          diff_thin50
+        ),
+        na.rm = TRUE
+      ),
+    max_abs_thick50_diff =
+      max(
+        abs(
+          diff_thick50
+        ),
+        na.rm = TRUE
+      ),
+    max_abs_neps200_diff =
+      max(
+        abs(
+          diff_neps200
+        ),
+        na.rm = TRUE
+      ),
+    max_abs_neps280_diff =
+      max(
+        abs(
+          diff_neps280
+        ),
+        na.rm = TRUE
+      ),
+    max_abs_hairiness_diff =
+      max(
+        abs(
+          diff_hairiness
+        ),
+        na.rm = TRUE
+      )
+  )
+
+package_mean_difference_summary
+```
+
+# 20. Trait missingness audit
+
+```{r trait-missingness-audit}
+identifier_columns <- c(
+  "field_sample_id",
+  "genotype",
+  "background",
+  "nil_set",
+  "qtl_status",
+  "material_type",
+  "field_rep",
+  "plot",
+  "micro_id",
+  "fiber_id",
+  "minispin_run",
+  "workbook_name"
+)
+
+sample_trait_columns <- setdiff(
+  names(
+    yarn_sample_clean
+  ),
+  identifier_columns
+)
+
+yarn_sample_missingness <- yarn_sample_clean |>
+  dplyr::summarise(
+    dplyr::across(
+      dplyr::all_of(
+        sample_trait_columns
+      ),
+      ~ sum(
+        is.na(
+          .x
+        )
+      )
+    )
+  ) |>
+  tidyr::pivot_longer(
+    cols = dplyr::everything(),
+    names_to = "variable",
+    values_to = "missing_values"
+  ) |>
+  dplyr::arrange(
+    dplyr::desc(
+      missing_values
+    ),
+    variable
+  )
+
+yarn_sample_missingness
+```
+
+# 21. Create a yarn trait dictionary
+
+```{r create-trait-dictionary}
+yarn_trait_dictionary <- tibble::tribble(
+  ~variable, ~analysis_level, ~description, ~manuscript_role,
+
+  "skein_breaking_strength_n",
+  "sample/package",
+  "Skein breaking strength in Newtons",
+  "Secondary yarn-strength outcome",
+
+  "skein_extension_mm",
+  "sample/package",
+  "Skein extension in millimeters",
+  "Secondary",
+
+  "skein_weight_g",
+  "sample/package",
+  "Skein weight in grams",
+  "QC / count calculation",
+
+  "actual_yarn_count_ne",
+  "sample",
+  "Observed English cotton count (Ne)",
+  "Important covariate and processing outcome",
+
+  "skein_mn_tex",
+  "sample/package",
+  "Normalized skein strength (mN/tex)",
+  "Major yarn-strength outcome",
+
+  "skein_elongation_pct",
+  "sample/package",
+  "Skein elongation percentage",
+  "Secondary",
+
+  "single_end_break_force_n",
+  "sample/package/break",
+  "Single-end yarn breaking force in Newtons",
+  "Secondary strength outcome",
+
+  "yarn_tenacity_cn_tex",
+  "sample/package/break",
+  "Single-end yarn tenacity in cN/tex",
+  "Primary yarn-strength outcome",
+
+  "yarn_elongation_pct",
+  "sample/package/break",
+  "Single-end elongation percentage",
+  "Major elongation outcome",
+
+  "yarn_work_to_break_n_cm",
+  "sample/package/break",
+  "Single-end work to break",
+  "Secondary",
+
+  "yarn_evenness_cv_pct",
+  "sample/package",
+  "Yarn mass variation / evenness CV",
+  "Primary yarn-evenness outcome",
+
+  "yarn_cvm_1yd_pct",
+  "sample/package",
+  "Yarn CVm over 1 yard",
+  "Secondary",
+
+  "yarn_cvm_3yd_pct",
+  "sample/package",
+  "Yarn CVm over 3 yards",
+  "Secondary",
+
+  "yarn_thin_50",
+  "sample/package",
+  "Thin places at -50% threshold",
+  "Primary imperfection outcome",
+
+  "yarn_thick_50",
+  "sample/package",
+  "Thick places at +50% threshold",
+  "Primary imperfection outcome",
+
+  "yarn_neps_200",
+  "sample/package",
+  "Yarn neps at +200% threshold",
+  "Primary imperfection outcome",
+
+  "yarn_neps_280",
+  "sample/package",
+  "Yarn neps at +280% threshold",
+  "Secondary",
+
+  "yarn_hairiness",
+  "sample/package",
+  "Uster yarn hairiness index",
+  "Primary hairiness outcome",
+
+  "yarn_sh",
+  "sample/package",
+  "Short-hair index / SH reported by instrument",
+  "Secondary",
+
+  "card_waste_pct",
+  "sample",
+  "Card waste as percentage of card input",
+  "Processing outcome",
+
+  "nominal_yarn_count_ne",
+  "sample",
+  "Target yarn count",
+  "Processing descriptor",
+
+  "actual_minus_nominal_count_ne",
+  "sample",
+  "Observed minus nominal yarn count",
+  "QC / sensitivity",
+
+  "ratch",
+  "sample",
+  "MiniSpin ratch setting",
+  "Sensitivity / processing-condition variable"
+)
+
+yarn_trait_dictionary
+```
+
+# 22. Final cleaning audit
+
+```{r final-cleaning-audit}
+final_cleaning_audit <- tibble::tibble(
+  check = c(
+    "Validated sample-key rows",
+    "Cross-reference rows",
+    "Sample-level skein rows",
+    "Sample-level Average Yarn rows",
+    "Processing rows",
+    "Final sample-level rows",
+    "Package-level rows",
+    "Expected package-level rows",
+    "Individual break rows",
+    "Expected individual break rows",
+    "Packages with non-20 break counts",
+    "Unmatched sample-level yarn records",
+    "Unmatched break records"
+  ),
+
+  result = c(
+    nrow(
+      sample_key
+    ),
+    nrow(
+      cross_ref
+    ),
+    nrow(
+      skein_avg
+    ),
+    nrow(
+      average_yarn
+    ),
+    nrow(
+      processing
+    ),
+    nrow(
+      yarn_sample_clean
+    ),
+    nrow(
+      yarn_package_clean
+    ),
+    184,
+    nrow(
+      yarn_single_end_breaks_clean
+    ),
+    3680,
+    sum(
+      break_count_audit$n_breaks != 20
+    ),
+    sum(
+      unlist(
+        sample_level_id_summary
+      )
+    ),
+    nrow(
+      unmatched_breaks
+    )
+  )
+)
+
+final_cleaning_audit
+```
+
+# 23. Save processed datasets
+
+```{r save-processed-datasets}
+readr::write_csv(
+  yarn_sample_clean,
+  file.path(
+    paths$data_processed,
+    "yarn_2022_sample_level_clean.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  yarn_package_clean,
+  file.path(
+    paths$data_processed,
+    "yarn_2022_package_level_clean.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  yarn_single_end_breaks_clean,
+  file.path(
+    paths$data_processed,
+    "yarn_2022_single_end_breaks_clean.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  processing,
+  file.path(
+    paths$data_processed,
+    "minispin_2022_processing_clean.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  yarn_trait_dictionary,
+  file.path(
+    paths$data_processed,
+    "yarn_2022_trait_dictionary.csv"
+  ),
+  na = ""
+)
+```
+
+# 24. Save audit outputs
+
+```{r save-audit-outputs}
+readr::write_csv(
+  input_file_audit,
+  file.path(
+    yarn_audit_dir,
+    "yarn_input_file_audit.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  sheet_audit,
+  file.path(
+    yarn_audit_dir,
+    "yarn_required_sheet_audit.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  sample_key_audit,
+  file.path(
+    yarn_audit_dir,
+    "yarn_sample_key_audit.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  cross_ref_audit,
+  file.path(
+    yarn_audit_dir,
+    "yarn_cross_reference_audit.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  cross_ref_identifier_audit,
+  file.path(
+    yarn_audit_dir,
+    "yarn_cross_reference_identifier_audit.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  skein_avg_audit,
+  file.path(
+    yarn_audit_dir,
+    "yarn_skein_average_audit.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  skein_bobbin_audit,
+  file.path(
+    yarn_audit_dir,
+    "yarn_skein_bobbin_audit.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  average_yarn_audit,
+  file.path(
+    yarn_audit_dir,
+    "yarn_average_report_audit.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  package_yarn_audit,
+  file.path(
+    yarn_audit_dir,
+    "yarn_package_report_audit.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  package_run_corrections,
+  file.path(
+    yarn_audit_dir,
+    "yarn_package_run_corrections.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  package_run_correction_audit,
+  file.path(
+    yarn_audit_dir,
+    "yarn_package_run_correction_audit.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  break_count_audit,
+  file.path(
+    yarn_audit_dir,
+    "yarn_break_count_by_package.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  processing_audit,
+  file.path(
+    yarn_audit_dir,
+    "minispin_processing_audit.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  sample_level_id_summary,
+  file.path(
+    yarn_audit_dir,
+    "yarn_sample_level_identifier_audit.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  package_mean_difference_summary,
+  file.path(
+    yarn_audit_dir,
+    "yarn_package_vs_sample_average_audit.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  yarn_sample_missingness,
+  file.path(
+    yarn_audit_dir,
+    "yarn_sample_trait_missingness.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  final_cleaning_audit,
+  file.path(
+    yarn_audit_dir,
+    "yarn_final_cleaning_audit.csv"
+  ),
+  na = ""
+)
+```
+
+# 25. Final status
+
+```{r final-status}
+message(
+  "\nYarn data cleaning completed."
+)
+
+message(
+  "\nFinal sample-level rows: ",
+  nrow(
+    yarn_sample_clean
+  )
+)
+
+message(
+  "\nFinal package-level rows: ",
+  nrow(
+    yarn_package_clean
+  )
+)
+
+message(
+  "\nFinal individual-break rows: ",
+  nrow(
+    yarn_single_end_breaks_clean
+  )
+)
+
+message(
+  "\nProcessed data saved to:\n",
+  paths$data_processed
+)
+
+message(
+  "\nCleaning audits saved to:\n",
+  yarn_audit_dir
+)
+```
+
+# 26. Session information
+
+```{r session-information}
+sessionInfo()
+```

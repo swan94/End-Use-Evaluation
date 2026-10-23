@@ -1,0 +1,2799 @@
+---
+title: "2022 MiniSpin Yarn Trait Analysis"
+author: "Samantha Wan"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    code_folding: show
+    df_print: paged
+
+knit: >
+  (function(input_file, encoding) {
+
+    project_root <- normalizePath(
+      "C:/Users/sjw23099/Desktop/End-Use Evaluation",
+      winslash = "/",
+      mustWork = TRUE
+    )
+
+    output_folder <- file.path(
+      project_root,
+      "05_results",
+      "notebook_outputs"
+    )
+
+    dir.create(
+      output_folder,
+      recursive = TRUE,
+      showWarnings = FALSE
+    )
+
+    rmarkdown::render(
+      input = input_file,
+      encoding = encoding,
+      output_dir = output_folder,
+      output_file = "05_analyze_yarn_traits.html",
+      knit_root_dir = project_root
+    )
+  })
+---
+
+# Purpose
+
+This notebook performs the primary 2022 MiniSpin yarn-quality analysis for the
+qFL-Chr.25 end-use evaluation.
+
+The statistical strategy follows the experimental structure:
+
+1. formal qFL-Chr.25 inference is restricted to the 16 NIILs
+   (8 QTL-positive / QTL-negative sister-line pairs; 64 field samples);
+2. the field sample / microginned lint lot is the biological experimental unit;
+3. sample-level yarn averages are the primary response data;
+4. NIL pairing is preserved using a random intercept for `pair_id`;
+5. field replication is included as a fixed blocking term;
+6. `Background × QTL status` is tested because the breeding value of the
+   introgression may depend on genetic background;
+7. actual yarn count and ratch are treated as **sensitivity variables**, not
+   automatic primary covariates, because both are closely tied to the spinning
+   process and ratch was selected partly from fiber length;
+8. package-level observations are used as confirmation analyses;
+9. individual tensile breaks are treated as technical-replicate QC data rather
+   than independent biological replicates;
+10. false-discovery-rate adjustment is applied across related yarn traits.
+
+Primary yarn outcomes:
+
+- normalized skein strength (`skein_mn_tex`);
+- single-end tenacity (`yarn_tenacity_cn_tex`);
+- single-end elongation (`yarn_elongation_pct`);
+- yarn evenness CV (`yarn_evenness_cv_pct`);
+- thin places at -50% (`yarn_thin_50`);
+- thick places at +50% (`yarn_thick_50`);
+- neps at +200% (`yarn_neps_200`);
+- yarn hairiness (`yarn_hairiness`).
+
+Processing outcomes analyzed separately:
+
+- actual yarn count (`actual_yarn_count_ne`);
+- card waste (`card_waste_pct`).
+
+```{r setup, include=FALSE}
+project_root <- normalizePath(
+  "C:/Users/sjw23099/Desktop/End-Use Evaluation",
+  winslash = "/",
+  mustWork = TRUE
+)
+
+knitr::opts_knit$set(
+  root.dir = project_root
+)
+
+source(
+  file.path(
+    project_root,
+    "04_code",
+    "00_setup.R"
+  ),
+  local = knitr::knit_global()
+)
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = TRUE,
+  message = TRUE,
+  error = FALSE,
+  fig.width = 9,
+  fig.height = 6
+)
+
+options(
+  contrasts = c(
+    "contr.sum",
+    "contr.poly"
+  )
+)
+```
+
+# 1. Check required packages
+
+```{r check-packages}
+required_packages <- c(
+  "dplyr",
+  "tidyr",
+  "purrr",
+  "readr",
+  "tibble",
+  "stringr",
+  "ggplot2",
+  "lme4",
+  "lmerTest",
+  "emmeans",
+  "broom.mixed"
+)
+
+missing_packages <- required_packages[
+  !vapply(
+    required_packages,
+    requireNamespace,
+    logical(1),
+    quietly = TRUE
+  )
+]
+
+if (length(missing_packages) > 0) {
+  stop(
+    "Install the following packages before continuing: ",
+    paste(
+      missing_packages,
+      collapse = ", "
+    )
+  )
+}
+```
+
+# 2. Create analysis directories
+
+```{r create-analysis-directories}
+yarn_analysis_root <- file.path(
+  project_root,
+  "05_results",
+  "yarn_analysis"
+)
+
+yarn_table_dir <- file.path(
+  yarn_analysis_root,
+  "tables"
+)
+
+yarn_figure_dir <- file.path(
+  yarn_analysis_root,
+  "figures"
+)
+
+yarn_diagnostic_dir <- file.path(
+  yarn_analysis_root,
+  "diagnostics"
+)
+
+yarn_model_dir <- file.path(
+  yarn_analysis_root,
+  "models"
+)
+
+purrr::walk(
+  c(
+    yarn_analysis_root,
+    yarn_table_dir,
+    yarn_figure_dir,
+    yarn_diagnostic_dir,
+    yarn_model_dir
+  ),
+  dir.create,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+```
+
+# 3. Locate cleaned datasets
+
+```{r locate-cleaned-data}
+sample_file <- file.path(
+  paths$data_processed,
+  "yarn_2022_sample_level_clean.csv"
+)
+
+package_file <- file.path(
+  paths$data_processed,
+  "yarn_2022_package_level_clean.csv"
+)
+
+break_file <- file.path(
+  paths$data_processed,
+  "yarn_2022_single_end_breaks_clean.csv"
+)
+
+required_files <- c(
+  sample_file,
+  package_file,
+  break_file
+)
+
+if (!all(file.exists(required_files))) {
+  stop(
+    "One or more cleaned yarn datasets are missing:\n",
+    paste(
+      required_files[
+        !file.exists(required_files)
+      ],
+      collapse = "\n"
+    )
+  )
+}
+
+input_file_audit <- tibble::tibble(
+  dataset = c(
+    "Sample-level",
+    "Package-level",
+    "Single-end breaks"
+  ),
+  file = basename(
+    required_files
+  ),
+  exists = file.exists(
+    required_files
+  )
+)
+
+input_file_audit
+```
+
+# 4. Import cleaned datasets
+
+```{r import-cleaned-data}
+yarn_sample <- readr::read_csv(
+  sample_file,
+  show_col_types = FALSE
+)
+
+yarn_package <- readr::read_csv(
+  package_file,
+  show_col_types = FALSE
+)
+
+yarn_breaks <- readr::read_csv(
+  break_file,
+  show_col_types = FALSE
+)
+
+dataset_dimensions <- tibble::tibble(
+  dataset = c(
+    "Sample-level",
+    "Package-level",
+    "Single-end breaks"
+  ),
+  rows = c(
+    nrow(yarn_sample),
+    nrow(yarn_package),
+    nrow(yarn_breaks)
+  ),
+  columns = c(
+    ncol(yarn_sample),
+    ncol(yarn_package),
+    ncol(yarn_breaks)
+  )
+)
+
+dataset_dimensions
+```
+
+# 5. Verify cleaned-data structure
+
+```{r verify-data-structure}
+expected_structure <- tibble::tibble(
+  dataset = c(
+    "Sample-level",
+    "Package-level",
+    "Single-end breaks"
+  ),
+  expected_rows = c(
+    92,
+    184,
+    3680
+  ),
+  observed_rows = c(
+    nrow(yarn_sample),
+    nrow(yarn_package),
+    nrow(yarn_breaks)
+  )
+) |>
+  dplyr::mutate(
+    matches_expectation =
+      expected_rows ==
+      observed_rows
+  )
+
+expected_structure
+
+if (!all(expected_structure$matches_expectation)) {
+  stop(
+    "One or more cleaned yarn datasets do not have the expected number of rows."
+  )
+}
+```
+
+# 6. Prepare factors and formal NIIL analysis population
+
+Parents and checks are retained for descriptive summaries and plotting but are not
+used to define the formal qFL-Chr.25 test.
+
+```{r prepare-analysis-data}
+prepare_yarn_factors <- function(data) {
+
+  data |>
+    dplyr::mutate(
+      field_sample_id =
+        factor(
+          field_sample_id
+        ),
+
+      genotype =
+        factor(
+          genotype
+        ),
+
+      background =
+        factor(
+          background,
+          levels = c(
+            "Acala",
+            "Deltapine",
+            "Georgia",
+            "Paymaster"
+          )
+        ),
+
+      nil_set =
+        factor(
+          nil_set
+        ),
+
+      qtl_status =
+        factor(
+          qtl_status,
+          levels = c(
+            "Negative",
+            "Positive",
+            "Parent_Check"
+          )
+        ),
+
+      material_type =
+        factor(
+          material_type
+        ),
+
+      field_rep =
+        factor(
+          field_rep_inferred
+        ),
+
+      ratch =
+        factor(
+          ratch
+        ),
+
+      pair_id =
+        interaction(
+          background,
+          nil_set,
+          drop = TRUE
+        )
+    )
+}
+
+yarn_sample <- prepare_yarn_factors(
+  yarn_sample
+)
+
+yarn_package <- prepare_yarn_factors(
+  yarn_package
+)
+
+yarn_breaks <- prepare_yarn_factors(
+  yarn_breaks
+)
+
+yarn_formal <- yarn_sample |>
+  dplyr::filter(
+    material_type == "NIIL",
+    qtl_status %in% c(
+      "Negative",
+      "Positive"
+    )
+  ) |>
+  droplevels()
+
+package_formal <- yarn_package |>
+  dplyr::filter(
+    material_type == "NIIL",
+    qtl_status %in% c(
+      "Negative",
+      "Positive"
+    )
+  ) |>
+  droplevels()
+
+break_formal <- yarn_breaks |>
+  dplyr::filter(
+    material_type == "NIIL",
+    qtl_status %in% c(
+      "Negative",
+      "Positive"
+    )
+  ) |>
+  droplevels()
+```
+
+# 7. Audit the formal analysis population
+
+```{r formal-population-audit}
+formal_population_audit <- tibble::tibble(
+  check = c(
+    "Formal NIIL samples",
+    "Unique NIIL genotypes",
+    "Unique NIL pairs",
+    "QTL-negative samples",
+    "QTL-positive samples",
+    "Acala samples",
+    "Deltapine samples",
+    "Georgia samples",
+    "Paymaster samples"
+  ),
+  result = c(
+    nrow(
+      yarn_formal
+    ),
+    dplyr::n_distinct(
+      yarn_formal$genotype
+    ),
+    dplyr::n_distinct(
+      yarn_formal$pair_id
+    ),
+    sum(
+      yarn_formal$qtl_status ==
+        "Negative"
+    ),
+    sum(
+      yarn_formal$qtl_status ==
+        "Positive"
+    ),
+    sum(
+      yarn_formal$background ==
+        "Acala"
+    ),
+    sum(
+      yarn_formal$background ==
+        "Deltapine"
+    ),
+    sum(
+      yarn_formal$background ==
+        "Georgia"
+    ),
+    sum(
+      yarn_formal$background ==
+        "Paymaster"
+    )
+  )
+)
+
+formal_population_audit
+```
+
+Expected formal structure:
+
+```text
+64 NIIL field samples
+16 NIIL genotypes
+8 NIL pairs
+32 QTL-negative samples
+32 QTL-positive samples
+16 samples per background
+```
+
+# 8. Inspect ratch and yarn-count structure
+
+Ratch was selected partly in response to fiber length, so it is potentially
+downstream of the qFL-Chr.25 fiber phenotype. It is therefore described here and
+used later only as a sensitivity variable.
+
+```{r ratch-count-audit}
+ratch_qtl_audit <- yarn_formal |>
+  dplyr::count(
+    qtl_status,
+    ratch,
+    name = "n_samples"
+  ) |>
+  tidyr::complete(
+    qtl_status,
+    ratch,
+    fill = list(
+      n_samples = 0
+    )
+  ) |>
+  dplyr::arrange(
+    qtl_status,
+    ratch
+  )
+
+ratch_qtl_audit
+
+ratch_background_audit <- yarn_formal |>
+  dplyr::count(
+    background,
+    qtl_status,
+    ratch,
+    name = "n_samples"
+  )
+
+ratch_background_audit
+
+yarn_count_summary <- yarn_formal |>
+  dplyr::group_by(
+    qtl_status
+  ) |>
+  dplyr::summarise(
+    n = dplyr::n(),
+    mean_actual_ne =
+      mean(
+        actual_yarn_count_ne,
+        na.rm = TRUE
+      ),
+    sd_actual_ne =
+      stats::sd(
+        actual_yarn_count_ne,
+        na.rm = TRUE
+      ),
+    min_actual_ne =
+      min(
+        actual_yarn_count_ne,
+        na.rm = TRUE
+      ),
+    max_actual_ne =
+      max(
+        actual_yarn_count_ne,
+        na.rm = TRUE
+      ),
+    mean_absolute_count_deviation =
+      mean(
+        absolute_count_deviation_ne,
+        na.rm = TRUE
+      ),
+    .groups = "drop"
+  )
+
+yarn_count_summary
+```
+
+# 9. Define trait sets
+
+```{r define-trait-sets}
+primary_yarn_traits <- c(
+  "skein_mn_tex",
+  "yarn_tenacity_cn_tex",
+  "yarn_elongation_pct",
+  "yarn_evenness_cv_pct",
+  "yarn_thin_50",
+  "yarn_thick_50",
+  "yarn_neps_200",
+  "yarn_hairiness"
+)
+
+secondary_yarn_traits <- c(
+  "skein_breaking_strength_n",
+  "skein_elongation_pct",
+  "single_end_break_force_n",
+  "yarn_work_to_break_n_cm",
+  "yarn_cvm_1yd_pct",
+  "yarn_cvm_3yd_pct",
+  "yarn_neps_280",
+  "yarn_sh"
+)
+
+processing_traits <- c(
+  "actual_yarn_count_ne",
+  "card_waste_pct"
+)
+
+all_modeled_traits <- c(
+  primary_yarn_traits,
+  secondary_yarn_traits,
+  processing_traits
+)
+
+trait_labels <- c(
+  skein_mn_tex =
+    "Normalized skein strength (mN/tex)",
+  yarn_tenacity_cn_tex =
+    "Single-end tenacity (cN/tex)",
+  yarn_elongation_pct =
+    "Single-end elongation (%)",
+  yarn_evenness_cv_pct =
+    "Yarn evenness CV (%)",
+  yarn_thin_50 =
+    "Thin places (-50%)",
+  yarn_thick_50 =
+    "Thick places (+50%)",
+  yarn_neps_200 =
+    "Neps (+200%)",
+  yarn_hairiness =
+    "Hairiness",
+  skein_breaking_strength_n =
+    "Skein breaking strength (N)",
+  skein_elongation_pct =
+    "Skein elongation (%)",
+  single_end_break_force_n =
+    "Single-end breaking force (N)",
+  yarn_work_to_break_n_cm =
+    "Work to break (N·cm)",
+  yarn_cvm_1yd_pct =
+    "CVm 1 yd (%)",
+  yarn_cvm_3yd_pct =
+    "CVm 3 yd (%)",
+  yarn_neps_280 =
+    "Neps (+280%)",
+  yarn_sh =
+    "SH",
+  actual_yarn_count_ne =
+    "Actual yarn count (Ne)",
+  card_waste_pct =
+    "Card waste (%)"
+)
+```
+
+# 10. Missingness audit for modeled traits
+
+```{r modeled-trait-missingness}
+modeled_trait_missingness <- tibble::tibble(
+  trait = all_modeled_traits,
+  missing_formal =
+    vapply(
+      all_modeled_traits,
+      function(trait) {
+        sum(
+          is.na(
+            yarn_formal[[trait]]
+          )
+        )
+      },
+      integer(1)
+    )
+) |>
+  dplyr::mutate(
+    trait_label =
+      unname(
+        trait_labels[
+          trait
+        ]
+      )
+  ) |>
+  dplyr::select(
+    trait,
+    trait_label,
+    missing_formal
+  )
+
+modeled_trait_missingness
+```
+
+# 11. Descriptive statistics
+
+```{r descriptive-statistics}
+yarn_descriptive_statistics <- yarn_sample |>
+  dplyr::select(
+    genotype,
+    background,
+    nil_set,
+    qtl_status,
+    material_type,
+    dplyr::all_of(
+      all_modeled_traits
+    )
+  ) |>
+  tidyr::pivot_longer(
+    cols = dplyr::all_of(
+      all_modeled_traits
+    ),
+    names_to = "trait",
+    values_to = "value"
+  ) |>
+  dplyr::group_by(
+    material_type,
+    background,
+    qtl_status,
+    trait
+  ) |>
+  dplyr::summarise(
+    n =
+      sum(
+        !is.na(
+          value
+        )
+      ),
+    mean =
+      mean(
+        value,
+        na.rm = TRUE
+      ),
+    sd =
+      stats::sd(
+        value,
+        na.rm = TRUE
+      ),
+    se =
+      sd /
+      sqrt(
+        n
+      ),
+    min =
+      min(
+        value,
+        na.rm = TRUE
+      ),
+    max =
+      max(
+        value,
+        na.rm = TRUE
+      ),
+    .groups = "drop"
+  ) |>
+  dplyr::mutate(
+    trait_label =
+      unname(
+        trait_labels[
+          trait
+        ]
+      )
+  )
+
+yarn_descriptive_statistics
+```
+
+# 12. Primary sample-level model
+
+For each trait:
+
+\[
+Y =
+Background +
+QTL +
+Background \times QTL +
+FieldRep +
+(1 | NIL\ pair)
+\]
+
+The random pair intercept preserves the matched sister-line structure while the
+`Background × QTL` term tests whether the qFL-Chr.25 effect differs among genetic
+backgrounds.
+
+```{r primary-model-function}
+fit_primary_yarn_model <- function(
+  trait,
+  data = yarn_formal
+) {
+
+  formula_text <- paste0(
+    trait,
+    " ~ background * qtl_status + field_rep + (1 | pair_id)"
+  )
+
+  formula_object <- stats::as.formula(
+    formula_text
+  )
+
+  model_data <- data |>
+    dplyr::filter(
+      !is.na(
+        .data[[trait]]
+      )
+    ) |>
+    droplevels()
+
+  fit <- tryCatch(
+    lmerTest::lmer(
+      formula_object,
+      data = model_data,
+      REML = TRUE,
+      control =
+        lme4::lmerControl(
+          optimizer = "bobyqa",
+          optCtrl = list(
+            maxfun = 100000
+          )
+        )
+    ),
+    error = function(e) {
+      e
+    }
+  )
+
+  list(
+    trait = trait,
+    n = nrow(
+      model_data
+    ),
+    model = fit
+  )
+}
+
+primary_model_results <- purrr::map(
+  primary_yarn_traits,
+  fit_primary_yarn_model
+)
+
+names(
+  primary_model_results
+) <- primary_yarn_traits
+```
+
+# 13. Primary model status and singularity
+
+```{r primary-model-status}
+primary_model_status <- purrr::map_dfr(
+  primary_model_results,
+  function(result) {
+
+    if (
+      inherits(
+        result$model,
+        "error"
+      )
+    ) {
+      return(
+        tibble::tibble(
+          trait = result$trait,
+          n = result$n,
+          fitted = FALSE,
+          singular = NA,
+          message =
+            conditionMessage(
+              result$model
+            )
+        )
+      )
+    }
+
+    tibble::tibble(
+      trait = result$trait,
+      n = result$n,
+      fitted = TRUE,
+      singular =
+        lme4::isSingular(
+          result$model,
+          tol = 1e-4
+        ),
+      message = NA_character_
+    )
+  }
+) |>
+  dplyr::mutate(
+    trait_label =
+      unname(
+        trait_labels[
+          trait
+        ]
+      )
+  )
+
+primary_model_status
+```
+
+# 14. Type III tests for primary yarn traits
+
+```{r primary-type3-tests}
+extract_type3 <- function(
+  result
+) {
+
+  if (
+    inherits(
+      result$model,
+      "error"
+    )
+  ) {
+    return(
+      tibble::tibble()
+    )
+  }
+
+  anova_table <- stats::anova(
+    result$model,
+    type = 3,
+    ddf = "Satterthwaite"
+  )
+
+  out <- as.data.frame(
+    anova_table
+  ) |>
+    tibble::rownames_to_column(
+      "effect"
+    ) |>
+    janitor::clean_names()
+
+  numerator_name <- intersect(
+    names(out),
+    c(
+      "num_df",
+      "ndf"
+    )
+  )
+
+  denominator_name <- intersect(
+    names(out),
+    c(
+      "den_df",
+      "ddf"
+    )
+  )
+
+  f_name <- intersect(
+    names(out),
+    c(
+      "f_value",
+      "f"
+    )
+  )
+
+  p_name <- intersect(
+    names(out),
+    c(
+      "pr_f",
+      "p_value"
+    )
+  )
+
+  tibble::tibble(
+    trait = result$trait,
+    effect = out$effect,
+    numerator_df =
+      if (
+        length(
+          numerator_name
+        ) > 0
+      ) {
+        out[[numerator_name[1]]]
+      } else {
+        NA_real_
+      },
+    denominator_df =
+      if (
+        length(
+          denominator_name
+        ) > 0
+      ) {
+        out[[denominator_name[1]]]
+      } else {
+        NA_real_
+      },
+    f_value =
+      if (
+        length(
+          f_name
+        ) > 0
+      ) {
+        out[[f_name[1]]]
+      } else {
+        NA_real_
+      },
+    p_value =
+      if (
+        length(
+          p_name
+        ) > 0
+      ) {
+        out[[p_name[1]]]
+      } else {
+        NA_real_
+      }
+  )
+}
+
+primary_type3_tests <- purrr::map_dfr(
+  primary_model_results,
+  extract_type3
+) |>
+  dplyr::mutate(
+    trait_label =
+      unname(
+        trait_labels[
+          trait
+        ]
+      )
+  ) |>
+  dplyr::group_by(
+    effect
+  ) |>
+  dplyr::mutate(
+    fdr_p =
+      stats::p.adjust(
+        p_value,
+        method = "BH"
+      )
+  ) |>
+  dplyr::ungroup()
+
+primary_type3_tests
+```
+
+# 15. Key primary tests
+
+```{r key-primary-tests}
+primary_key_test_summary <- primary_type3_tests |>
+  dplyr::filter(
+    effect %in% c(
+      "qtl_status",
+      "background:qtl_status"
+    )
+  ) |>
+  dplyr::arrange(
+    effect,
+    fdr_p,
+    p_value
+  )
+
+primary_key_test_summary
+```
+
+# 16. Estimated marginal means by QTL status
+
+```{r qtl-emmeans}
+extract_qtl_emmeans <- function(
+  result
+) {
+
+  if (
+    inherits(
+      result$model,
+      "error"
+    )
+  ) {
+    return(
+      tibble::tibble()
+    )
+  }
+
+  em <- emmeans::emmeans(
+    result$model,
+    ~ qtl_status
+  )
+
+  as.data.frame(
+    em
+  ) |>
+    janitor::clean_names() |>
+    tibble::as_tibble() |>
+    dplyr::mutate(
+      trait = result$trait,
+      .before = 1
+    )
+}
+
+primary_qtl_emmeans <- purrr::map_dfr(
+  primary_model_results,
+  extract_qtl_emmeans
+) |>
+  dplyr::mutate(
+    trait_label =
+      unname(
+        trait_labels[
+          trait
+        ]
+      )
+  )
+
+primary_qtl_emmeans
+```
+
+# 17. Overall Positive - Negative QTL contrasts
+
+These are the overall adjusted QTL contrasts across backgrounds.
+
+```{r overall-qtl-contrasts}
+extract_overall_qtl_contrast <- function(
+  result
+) {
+
+  if (
+    inherits(
+      result$model,
+      "error"
+    )
+  ) {
+    return(
+      tibble::tibble()
+    )
+  }
+
+  em <- emmeans::emmeans(
+    result$model,
+    ~ qtl_status
+  )
+
+  contrast_result <- emmeans::contrast(
+    em,
+    method = list(
+      "Positive - Negative" =
+        c(
+          -1,
+          1
+        )
+    ),
+    adjust = "none"
+  )
+
+  as.data.frame(
+    contrast_result
+  ) |>
+    janitor::clean_names() |>
+    tibble::as_tibble() |>
+    dplyr::mutate(
+      trait = result$trait,
+      .before = 1
+    )
+}
+
+primary_overall_qtl_contrasts <- purrr::map_dfr(
+  primary_model_results,
+  extract_overall_qtl_contrast
+) |>
+  dplyr::mutate(
+    trait_label =
+      unname(
+        trait_labels[
+          trait
+        ]
+      ),
+    fdr_p =
+      stats::p.adjust(
+        p_value,
+        method = "BH"
+      )
+  ) |>
+  dplyr::arrange(
+    fdr_p,
+    p_value
+  )
+
+primary_overall_qtl_contrasts
+```
+
+# 18. Background-specific Positive - Negative contrasts
+
+These contrasts describe the QTL effect within each background. They should be
+interpreted together with the formal `Background × QTL` interaction rather than
+using "significant in one background but not another" as evidence of interaction.
+
+```{r background-specific-qtl-contrasts}
+extract_background_qtl_contrasts <- function(
+  result
+) {
+
+  if (
+    inherits(
+      result$model,
+      "error"
+    )
+  ) {
+    return(
+      tibble::tibble()
+    )
+  }
+
+  em <- emmeans::emmeans(
+    result$model,
+    ~ qtl_status | background
+  )
+
+  contrast_result <- emmeans::contrast(
+    em,
+    method = list(
+      "Positive - Negative" =
+        c(
+          -1,
+          1
+        )
+    ),
+    by = "background",
+    adjust = "none"
+  )
+
+  as.data.frame(
+    contrast_result
+  ) |>
+    janitor::clean_names() |>
+    tibble::as_tibble() |>
+    dplyr::mutate(
+      trait = result$trait,
+      .before = 1
+    )
+}
+
+primary_background_qtl_contrasts <- purrr::map_dfr(
+  primary_model_results,
+  extract_background_qtl_contrasts
+) |>
+  dplyr::mutate(
+    trait_label =
+      unname(
+        trait_labels[
+          trait
+        ]
+      )
+  ) |>
+  dplyr::group_by(
+    background
+  ) |>
+  dplyr::mutate(
+    fdr_p =
+      stats::p.adjust(
+        p_value,
+        method = "BH"
+      )
+  ) |>
+  dplyr::ungroup()
+
+primary_background_qtl_contrasts
+```
+
+# 19. Variance components
+
+```{r primary-variance-components}
+extract_variance_components <- function(
+  result
+) {
+
+  if (
+    inherits(
+      result$model,
+      "error"
+    )
+  ) {
+    return(
+      tibble::tibble()
+    )
+  }
+
+  as.data.frame(
+    lme4::VarCorr(
+      result$model
+    )
+  ) |>
+    tibble::as_tibble() |>
+    dplyr::transmute(
+      trait = result$trait,
+      group = grp,
+      variance = vcov,
+      sd = sdcor
+    )
+}
+
+primary_variance_components <- purrr::map_dfr(
+  primary_model_results,
+  extract_variance_components
+)
+
+primary_variance_components
+```
+
+# 20. Primary model residual diagnostics
+
+```{r primary-residual-diagnostics}
+extract_primary_residuals <- function(
+  result
+) {
+
+  if (
+    inherits(
+      result$model,
+      "error"
+    )
+  ) {
+    return(
+      tibble::tibble()
+    )
+  }
+
+  model_frame <- stats::model.frame(
+    result$model
+  )
+
+  original_rows <- as.integer(
+    rownames(
+      model_frame
+    )
+  )
+
+  diagnostic_data <- yarn_formal[
+    original_rows,
+    ,
+    drop = FALSE
+  ]
+
+  residual_values <- stats::residuals(
+    result$model
+  )
+
+  residual_sd <- stats::sd(
+    residual_values,
+    na.rm = TRUE
+  )
+
+  diagnostic_data |>
+    dplyr::transmute(
+      trait = result$trait,
+      field_sample_id,
+      genotype,
+      background,
+      pair_id,
+      qtl_status,
+      field_rep,
+      ratch,
+      actual_yarn_count_ne,
+      value =
+        .data[[result$trait]],
+      fitted_value =
+        stats::fitted(
+          result$model
+        ),
+      residual =
+        residual_values,
+      standardized_residual =
+        residual_values /
+        residual_sd
+    )
+}
+
+primary_residuals <- purrr::map_dfr(
+  primary_model_results,
+  extract_primary_residuals
+)
+
+primary_residual_outliers <- primary_residuals |>
+  dplyr::filter(
+    abs(
+      standardized_residual
+    ) > 3
+  ) |>
+  dplyr::arrange(
+    trait,
+    dplyr::desc(
+      abs(
+        standardized_residual
+      )
+    )
+  )
+
+primary_diagnostic_summary <- primary_residuals |>
+  dplyr::group_by(
+    trait
+  ) |>
+  dplyr::summarise(
+    n =
+      dplyr::n(),
+    max_abs_standardized_residual =
+      max(
+        abs(
+          standardized_residual
+        ),
+        na.rm = TRUE
+      ),
+    n_over_3sd =
+      sum(
+        abs(
+          standardized_residual
+        ) > 3,
+        na.rm = TRUE
+      ),
+    .groups = "drop"
+  )
+
+primary_diagnostic_summary
+primary_residual_outliers
+```
+
+# 21. Save primary diagnostic plots
+
+```{r save-primary-diagnostic-plots}
+for (
+  trait_name in primary_yarn_traits
+) {
+
+  trait_data <- primary_residuals |>
+    dplyr::filter(
+      trait == trait_name
+    )
+
+  if (nrow(trait_data) == 0) {
+    next
+  }
+
+  p_resid <- ggplot2::ggplot(
+    trait_data,
+    ggplot2::aes(
+      x = fitted_value,
+      y = residual
+    )
+  ) +
+    ggplot2::geom_point() +
+    ggplot2::geom_hline(
+      yintercept = 0,
+      linetype = 2
+    ) +
+    ggplot2::labs(
+      title = paste(
+        trait_labels[
+          trait_name
+        ],
+        "- residuals vs fitted"
+      ),
+      x = "Fitted value",
+      y = "Residual"
+    ) +
+    ggplot2::theme_bw()
+
+  ggplot2::ggsave(
+    filename = file.path(
+      yarn_diagnostic_dir,
+      paste0(
+        trait_name,
+        "_residuals_vs_fitted.png"
+      )
+    ),
+    plot = p_resid,
+    width = 8,
+    height = 6,
+    dpi = 300
+  )
+
+  p_qq <- ggplot2::ggplot(
+    trait_data,
+    ggplot2::aes(
+      sample = standardized_residual
+    )
+  ) +
+    ggplot2::stat_qq() +
+    ggplot2::stat_qq_line() +
+    ggplot2::labs(
+      title = paste(
+        trait_labels[
+          trait_name
+        ],
+        "- normal Q-Q"
+      ),
+      x = "Theoretical quantile",
+      y = "Standardized residual"
+    ) +
+    ggplot2::theme_bw()
+
+  ggplot2::ggsave(
+    filename = file.path(
+      yarn_diagnostic_dir,
+      paste0(
+        trait_name,
+        "_qq.png"
+      )
+    ),
+    plot = p_qq,
+    width = 8,
+    height = 6,
+    dpi = 300
+  )
+}
+```
+
+# 22. Manuscript-style QTL estimated-mean plots
+
+```{r save-primary-emmean-plots}
+for (
+  trait_name in primary_yarn_traits
+) {
+
+  plot_data <- primary_background_qtl_contrasts |>
+    dplyr::filter(
+      trait == trait_name
+    )
+
+  em_data <- if (
+    inherits(
+      primary_model_results[[trait_name]]$model,
+      "error"
+    )
+  ) {
+    NULL
+  } else {
+    as.data.frame(
+      emmeans::emmeans(
+        primary_model_results[[trait_name]]$model,
+        ~ qtl_status | background
+      )
+    ) |>
+      janitor::clean_names() |>
+      tibble::as_tibble()
+  }
+
+  if (
+    is.null(
+      em_data
+    ) ||
+    nrow(
+      em_data
+    ) == 0
+  ) {
+    next
+  }
+
+  p <- ggplot2::ggplot(
+    em_data,
+    ggplot2::aes(
+      x = background,
+      y = emmean,
+      group = qtl_status,
+      linetype = qtl_status,
+      shape = qtl_status
+    )
+  ) +
+    ggplot2::geom_line() +
+    ggplot2::geom_point(
+      size = 2.6
+    ) +
+    ggplot2::geom_errorbar(
+      ggplot2::aes(
+        ymin = emmean - se,
+        ymax = emmean + se
+      ),
+      width = 0.08
+    ) +
+    ggplot2::labs(
+      title =
+        trait_labels[
+          trait_name
+        ],
+      x = "Genetic background",
+      y = "Estimated marginal mean",
+      linetype = "qFL-Chr.25 status",
+      shape = "qFL-Chr.25 status"
+    ) +
+    ggplot2::theme_bw() +
+    ggplot2::theme(
+      legend.position = "top"
+    )
+
+  ggplot2::ggsave(
+    filename = file.path(
+      yarn_figure_dir,
+      paste0(
+        trait_name,
+        "_background_qtl_emmeans.png"
+      )
+    ),
+    plot = p,
+    width = 8.5,
+    height = 6,
+    dpi = 300
+  )
+}
+```
+
+# 23. Secondary yarn-trait models
+
+Secondary traits use the same model structure but are interpreted as supporting
+outcomes rather than the primary inferential family.
+
+```{r fit-secondary-traits}
+secondary_model_results <- purrr::map(
+  secondary_yarn_traits,
+  fit_primary_yarn_model
+)
+
+names(
+  secondary_model_results
+) <- secondary_yarn_traits
+
+secondary_type3_tests <- purrr::map_dfr(
+  secondary_model_results,
+  extract_type3
+) |>
+  dplyr::mutate(
+    trait_label =
+      unname(
+        trait_labels[
+          trait
+        ]
+      )
+  ) |>
+  dplyr::group_by(
+    effect
+  ) |>
+  dplyr::mutate(
+    fdr_p =
+      stats::p.adjust(
+        p_value,
+        method = "BH"
+      )
+  ) |>
+  dplyr::ungroup()
+
+secondary_overall_qtl_contrasts <- purrr::map_dfr(
+  secondary_model_results,
+  extract_overall_qtl_contrast
+) |>
+  dplyr::mutate(
+    trait_label =
+      unname(
+        trait_labels[
+          trait
+        ]
+      ),
+    fdr_p =
+      stats::p.adjust(
+        p_value,
+        method = "BH"
+      )
+  )
+```
+
+# 24. Processing outcomes: actual yarn count and card waste
+
+These outcomes are analyzed in a separate multiple-testing family because they are
+processing-performance variables rather than yarn-quality endpoints.
+
+```{r fit-processing-outcomes}
+processing_model_results <- purrr::map(
+  processing_traits,
+  fit_primary_yarn_model
+)
+
+names(
+  processing_model_results
+) <- processing_traits
+
+processing_type3_tests <- purrr::map_dfr(
+  processing_model_results,
+  extract_type3
+) |>
+  dplyr::mutate(
+    trait_label =
+      unname(
+        trait_labels[
+          trait
+        ]
+      )
+  ) |>
+  dplyr::group_by(
+    effect
+  ) |>
+  dplyr::mutate(
+    fdr_p =
+      stats::p.adjust(
+        p_value,
+        method = "BH"
+      )
+  ) |>
+  dplyr::ungroup()
+
+processing_qtl_contrasts <- purrr::map_dfr(
+  processing_model_results,
+  extract_overall_qtl_contrast
+) |>
+  dplyr::mutate(
+    trait_label =
+      unname(
+        trait_labels[
+          trait
+        ]
+      ),
+    fdr_p =
+      stats::p.adjust(
+        p_value,
+        method = "BH"
+      )
+  )
+
+processing_type3_tests
+processing_qtl_contrasts
+```
+
+# 25. Sensitivity analysis: adjustment for actual yarn count
+
+Actual yarn count is not included in the primary model. This sensitivity analysis
+asks whether QTL conclusions persist after adjusting for observed yarn linear
+density.
+
+The actual-yarn-count sensitivity is not fitted for `actual_yarn_count_ne` itself.
+
+```{r yarn-count-sensitivity-function}
+fit_count_adjusted_model <- function(
+  trait
+) {
+
+  model_data <- yarn_formal |>
+    dplyr::filter(
+      !is.na(
+        .data[[trait]]
+      ),
+      !is.na(
+        actual_yarn_count_ne
+      )
+    ) |>
+    droplevels()
+
+  formula_object <- stats::as.formula(
+    paste0(
+      trait,
+      " ~ background * qtl_status + field_rep + ",
+      "actual_yarn_count_ne + (1 | pair_id)"
+    )
+  )
+
+  fit <- tryCatch(
+    lmerTest::lmer(
+      formula_object,
+      data = model_data,
+      REML = TRUE,
+      control =
+        lme4::lmerControl(
+          optimizer = "bobyqa",
+          optCtrl = list(
+            maxfun = 100000
+          )
+        )
+    ),
+    error = function(e) {
+      e
+    }
+  )
+
+  list(
+    trait = trait,
+    n = nrow(
+      model_data
+    ),
+    model = fit
+  )
+}
+
+count_adjusted_results <- purrr::map(
+  primary_yarn_traits,
+  fit_count_adjusted_model
+)
+
+names(
+  count_adjusted_results
+) <- primary_yarn_traits
+
+count_adjusted_type3 <- purrr::map_dfr(
+  count_adjusted_results,
+  extract_type3
+) |>
+  dplyr::group_by(
+    effect
+  ) |>
+  dplyr::mutate(
+    fdr_p =
+      stats::p.adjust(
+        p_value,
+        method = "BH"
+      )
+  ) |>
+  dplyr::ungroup()
+
+count_adjusted_qtl_contrasts <- purrr::map_dfr(
+  count_adjusted_results,
+  extract_overall_qtl_contrast
+) |>
+  dplyr::mutate(
+    fdr_p =
+      stats::p.adjust(
+        p_value,
+        method = "BH"
+      )
+  )
+```
+
+# 26. Sensitivity analysis: adjustment for ratch
+
+Ratch is strongly associated with initial fiber length and is therefore not treated
+as a routine nuisance covariate in the primary analysis. This model is a
+conditional sensitivity analysis only.
+
+```{r ratch-sensitivity-function}
+fit_ratch_adjusted_model <- function(
+  trait
+) {
+
+  model_data <- yarn_formal |>
+    dplyr::filter(
+      !is.na(
+        .data[[trait]]
+      ),
+      !is.na(
+        ratch
+      )
+    ) |>
+    droplevels()
+
+  formula_object <- stats::as.formula(
+    paste0(
+      trait,
+      " ~ background * qtl_status + field_rep + ",
+      "ratch + (1 | pair_id)"
+    )
+  )
+
+  fit <- tryCatch(
+    lmerTest::lmer(
+      formula_object,
+      data = model_data,
+      REML = TRUE,
+      control =
+        lme4::lmerControl(
+          optimizer = "bobyqa",
+          optCtrl = list(
+            maxfun = 100000
+          )
+        )
+    ),
+    error = function(e) {
+      e
+    }
+  )
+
+  list(
+    trait = trait,
+    n = nrow(
+      model_data
+    ),
+    model = fit
+  )
+}
+
+ratch_adjusted_results <- purrr::map(
+  primary_yarn_traits,
+  fit_ratch_adjusted_model
+)
+
+names(
+  ratch_adjusted_results
+) <- primary_yarn_traits
+
+ratch_adjusted_type3 <- purrr::map_dfr(
+  ratch_adjusted_results,
+  extract_type3
+) |>
+  dplyr::group_by(
+    effect
+  ) |>
+  dplyr::mutate(
+    fdr_p =
+      stats::p.adjust(
+        p_value,
+        method = "BH"
+      )
+  ) |>
+  dplyr::ungroup()
+
+ratch_adjusted_qtl_contrasts <- purrr::map_dfr(
+  ratch_adjusted_results,
+  extract_overall_qtl_contrast
+) |>
+  dplyr::mutate(
+    fdr_p =
+      stats::p.adjust(
+        p_value,
+        method = "BH"
+      )
+  )
+```
+
+# 27. Sensitivity analysis: ratch 3 only
+
+This analysis removes the direct comparison among ratch settings. Because ratch 3
+contains an unequal number of QTL-positive and QTL-negative samples, it is treated
+as supporting evidence only.
+
+```{r ratch3-sensitivity}
+ratch3_formal <- yarn_formal |>
+  dplyr::filter(
+    ratch == "3"
+  ) |>
+  droplevels()
+
+ratch3_population_audit <- ratch3_formal |>
+  dplyr::count(
+    background,
+    qtl_status,
+    name = "n_samples"
+  )
+
+ratch3_population_audit
+
+fit_ratch3_model <- function(
+  trait
+) {
+
+  model_data <- ratch3_formal |>
+    dplyr::filter(
+      !is.na(
+        .data[[trait]]
+      )
+    ) |>
+    droplevels()
+
+  formula_object <- stats::as.formula(
+    paste0(
+      trait,
+      " ~ background * qtl_status + field_rep + (1 | pair_id)"
+    )
+  )
+
+  fit <- tryCatch(
+    lmerTest::lmer(
+      formula_object,
+      data = model_data,
+      REML = TRUE,
+      control =
+        lme4::lmerControl(
+          optimizer = "bobyqa",
+          optCtrl = list(
+            maxfun = 100000
+          )
+        )
+    ),
+    error = function(e) {
+      e
+    }
+  )
+
+  list(
+    trait = trait,
+    n = nrow(
+      model_data
+    ),
+    model = fit
+  )
+}
+
+ratch3_results <- purrr::map(
+  primary_yarn_traits,
+  fit_ratch3_model
+)
+
+names(
+  ratch3_results
+) <- primary_yarn_traits
+
+ratch3_type3 <- purrr::map_dfr(
+  ratch3_results,
+  extract_type3
+) |>
+  dplyr::group_by(
+    effect
+  ) |>
+  dplyr::mutate(
+    fdr_p =
+      stats::p.adjust(
+        p_value,
+        method = "BH"
+      )
+  ) |>
+  dplyr::ungroup()
+
+ratch3_qtl_contrasts <- purrr::map_dfr(
+  ratch3_results,
+  extract_overall_qtl_contrast
+) |>
+  dplyr::mutate(
+    fdr_p =
+      stats::p.adjust(
+        p_value,
+        method = "BH"
+      )
+  )
+```
+
+# 28. Compare primary and sensitivity QTL estimates
+
+```{r compare-sensitivity-results}
+standardize_contrast_table <- function(
+  data,
+  analysis
+) {
+
+  data |>
+    dplyr::transmute(
+      trait,
+      analysis = analysis,
+      estimate,
+      se,
+      df,
+      t_ratio,
+      p_value,
+      fdr_p
+    )
+}
+
+qtl_sensitivity_comparison <- dplyr::bind_rows(
+  standardize_contrast_table(
+    primary_overall_qtl_contrasts,
+    "Primary"
+  ),
+  standardize_contrast_table(
+    count_adjusted_qtl_contrasts,
+    "Adjusted for actual yarn count"
+  ),
+  standardize_contrast_table(
+    ratch_adjusted_qtl_contrasts,
+    "Adjusted for ratch"
+  ),
+  standardize_contrast_table(
+    ratch3_qtl_contrasts,
+    "Ratch 3 only"
+  )
+) |>
+  dplyr::mutate(
+    trait_label =
+      unname(
+        trait_labels[
+          trait
+        ]
+      )
+  )
+
+qtl_sensitivity_comparison
+```
+
+# 29. Package-level confirmation models
+
+Package-level confirmation preserves the two-package structure by adding a random
+intercept for biological field sample. These models are secondary to the
+sample-average analysis.
+
+```{r package-level-confirmation}
+package_traits <- c(
+  "skein_mn_tex",
+  "yarn_tenacity_cn_tex",
+  "yarn_elongation_pct",
+  "yarn_evenness_cv_pct",
+  "yarn_thin_50",
+  "yarn_thick_50",
+  "yarn_neps_200",
+  "yarn_hairiness"
+)
+
+fit_package_model <- function(
+  trait
+) {
+
+  model_data <- package_formal |>
+    dplyr::filter(
+      !is.na(
+        .data[[trait]]
+      )
+    ) |>
+    droplevels()
+
+  formula_object <- stats::as.formula(
+    paste0(
+      trait,
+      " ~ background * qtl_status + field_rep + ",
+      "(1 | pair_id) + (1 | field_sample_id)"
+    )
+  )
+
+  fit <- tryCatch(
+    lmerTest::lmer(
+      formula_object,
+      data = model_data,
+      REML = TRUE,
+      control =
+        lme4::lmerControl(
+          optimizer = "bobyqa",
+          optCtrl = list(
+            maxfun = 100000
+          )
+        )
+    ),
+    error = function(e) {
+      e
+    }
+  )
+
+  list(
+    trait = trait,
+    n = nrow(
+      model_data
+    ),
+    model = fit
+  )
+}
+
+package_model_results <- purrr::map(
+  package_traits,
+  fit_package_model
+)
+
+names(
+  package_model_results
+) <- package_traits
+
+package_model_status <- purrr::map_dfr(
+  package_model_results,
+  function(result) {
+
+    if (
+      inherits(
+        result$model,
+        "error"
+      )
+    ) {
+      return(
+        tibble::tibble(
+          trait = result$trait,
+          n = result$n,
+          fitted = FALSE,
+          singular = NA,
+          message =
+            conditionMessage(
+              result$model
+            )
+        )
+      )
+    }
+
+    tibble::tibble(
+      trait = result$trait,
+      n = result$n,
+      fitted = TRUE,
+      singular =
+        lme4::isSingular(
+          result$model,
+          tol = 1e-4
+        ),
+      message = NA_character_
+    )
+  }
+)
+
+package_qtl_contrasts <- purrr::map_dfr(
+  package_model_results,
+  extract_overall_qtl_contrast
+) |>
+  dplyr::mutate(
+    fdr_p =
+      stats::p.adjust(
+        p_value,
+        method = "BH"
+      )
+  )
+
+package_model_status
+package_qtl_contrasts
+```
+
+# 30. Technical-replicate tensile-break QC
+
+Individual breaks are summarized only to characterize within-package technical
+variation. They are not treated as 3,680 independent biological observations.
+
+```{r tensile-break-qc}
+break_qc_by_package <- break_formal |>
+  dplyr::group_by(
+    field_sample_id,
+    minispin_run,
+    package,
+    genotype,
+    background,
+    pair_id,
+    qtl_status
+  ) |>
+  dplyr::summarise(
+    n_breaks =
+      dplyr::n(),
+    mean_tenacity =
+      mean(
+        yarn_tenacity_cn_tex,
+        na.rm = TRUE
+      ),
+    sd_tenacity =
+      stats::sd(
+        yarn_tenacity_cn_tex,
+        na.rm = TRUE
+      ),
+    cv_tenacity_pct =
+      100 *
+      sd_tenacity /
+      mean_tenacity,
+    mean_break_force =
+      mean(
+        single_end_break_force_n,
+        na.rm = TRUE
+      ),
+    sd_break_force =
+      stats::sd(
+        single_end_break_force_n,
+        na.rm = TRUE
+      ),
+    .groups = "drop"
+  )
+
+break_qc_summary <- break_qc_by_package |>
+  dplyr::summarise(
+    packages =
+      dplyr::n(),
+    packages_with_20_breaks =
+      sum(
+        n_breaks == 20
+      ),
+    packages_not_20_breaks =
+      sum(
+        n_breaks != 20
+      ),
+    median_tenacity_cv_pct =
+      stats::median(
+        cv_tenacity_pct,
+        na.rm = TRUE
+      ),
+    max_tenacity_cv_pct =
+      max(
+        cv_tenacity_pct,
+        na.rm = TRUE
+      )
+  )
+
+break_qc_summary
+```
+
+# 31. Influence sensitivity excluding > |3 SD| primary residuals
+
+This sensitivity removes only observations flagged by the corresponding primary
+trait model. It is used to determine whether a QTL conclusion is driven by a small
+number of influential observations; it does not automatically justify deleting
+those observations from the primary analysis.
+
+```{r outlier-sensitivity}
+fit_outlier_sensitivity <- function(
+  trait
+) {
+
+  flagged_ids <- primary_residual_outliers |>
+    dplyr::filter(
+      trait == !!trait
+    ) |>
+    dplyr::pull(
+      field_sample_id
+    ) |>
+    as.character()
+
+  model_data <- yarn_formal |>
+    dplyr::filter(
+      !is.na(
+        .data[[trait]]
+      ),
+      !as.character(
+        field_sample_id
+      ) %in%
+        flagged_ids
+    ) |>
+    droplevels()
+
+  formula_object <- stats::as.formula(
+    paste0(
+      trait,
+      " ~ background * qtl_status + field_rep + (1 | pair_id)"
+    )
+  )
+
+  fit <- tryCatch(
+    lmerTest::lmer(
+      formula_object,
+      data = model_data,
+      REML = TRUE,
+      control =
+        lme4::lmerControl(
+          optimizer = "bobyqa",
+          optCtrl = list(
+            maxfun = 100000
+          )
+        )
+    ),
+    error = function(e) {
+      e
+    }
+  )
+
+  list(
+    trait = trait,
+    n = nrow(
+      model_data
+    ),
+    n_removed =
+      length(
+        unique(
+          flagged_ids
+        )
+      ),
+    model = fit
+  )
+}
+
+outlier_sensitivity_results <- purrr::map(
+  primary_yarn_traits,
+  fit_outlier_sensitivity
+)
+
+names(
+  outlier_sensitivity_results
+) <- primary_yarn_traits
+
+outlier_sensitivity_qtl <- purrr::map_dfr(
+  outlier_sensitivity_results,
+  function(result) {
+
+    contrast_table <-
+      extract_overall_qtl_contrast(
+        result
+      )
+
+    if (
+      nrow(
+        contrast_table
+      ) == 0
+    ) {
+      return(
+        contrast_table
+      )
+    }
+
+    contrast_table |>
+      dplyr::mutate(
+        n = result$n,
+        n_removed =
+          result$n_removed
+      )
+  }
+) |>
+  dplyr::mutate(
+    fdr_p =
+      stats::p.adjust(
+        p_value,
+        method = "BH"
+      )
+  )
+
+outlier_sensitivity_qtl
+```
+
+# 32. Overall QTL effect-size plot
+
+```{r save-overall-qtl-effect-plot}
+overall_effect_plot_data <- primary_overall_qtl_contrasts |>
+  dplyr::mutate(
+    lower =
+      estimate -
+      1.96 *
+      se,
+    upper =
+      estimate +
+      1.96 *
+      se,
+    trait_label =
+      factor(
+        trait_label,
+        levels =
+          rev(
+            unname(
+              trait_labels[
+                primary_yarn_traits
+              ]
+            )
+          )
+      )
+  )
+
+p_overall_effect <- ggplot2::ggplot(
+  overall_effect_plot_data,
+  ggplot2::aes(
+    x = estimate,
+    y = trait_label
+  )
+) +
+  ggplot2::geom_vline(
+    xintercept = 0,
+    linetype = 2
+  ) +
+  ggplot2::geom_errorbarh(
+    ggplot2::aes(
+      xmin = lower,
+      xmax = upper
+    ),
+    height = 0.15
+  ) +
+  ggplot2::geom_point(
+    size = 2.6
+  ) +
+  ggplot2::labs(
+    title = "Overall qFL-Chr.25 effect on yarn traits",
+    subtitle = "Positive - Negative estimated marginal mean",
+    x = "Estimated QTL effect",
+    y = NULL
+  ) +
+  ggplot2::theme_bw()
+
+ggplot2::ggsave(
+  filename = file.path(
+    yarn_figure_dir,
+    "primary_yarn_overall_qtl_effects.png"
+  ),
+  plot = p_overall_effect,
+  width = 9,
+  height = 6.5,
+  dpi = 300
+)
+
+p_overall_effect
+```
+
+# 33. Save primary models
+
+```{r save-models}
+purrr::iwalk(
+  primary_model_results,
+  function(result, trait_name) {
+
+    if (
+      !inherits(
+        result$model,
+        "error"
+      )
+    ) {
+      saveRDS(
+        result$model,
+        file.path(
+          yarn_model_dir,
+          paste0(
+            "primary_",
+            trait_name,
+            "_model.rds"
+          )
+        )
+      )
+    }
+  }
+)
+```
+
+# 34. Save tables and diagnostics
+
+```{r save-analysis-outputs}
+output_tables <- list(
+  "yarn_input_file_audit.csv" =
+    input_file_audit,
+
+  "yarn_expected_structure.csv" =
+    expected_structure,
+
+  "yarn_formal_population_audit.csv" =
+    formal_population_audit,
+
+  "yarn_ratch_by_qtl.csv" =
+    ratch_qtl_audit,
+
+  "yarn_ratch_by_background_qtl.csv" =
+    ratch_background_audit,
+
+  "yarn_count_summary.csv" =
+    yarn_count_summary,
+
+  "yarn_modeled_trait_missingness.csv" =
+    modeled_trait_missingness,
+
+  "yarn_descriptive_statistics.csv" =
+    yarn_descriptive_statistics,
+
+  "yarn_primary_model_status.csv" =
+    primary_model_status,
+
+  "yarn_primary_type3_tests.csv" =
+    primary_type3_tests,
+
+  "yarn_primary_key_test_summary.csv" =
+    primary_key_test_summary,
+
+  "yarn_primary_qtl_emmeans.csv" =
+    primary_qtl_emmeans,
+
+  "yarn_primary_overall_qtl_contrasts.csv" =
+    primary_overall_qtl_contrasts,
+
+  "yarn_primary_background_qtl_contrasts.csv" =
+    primary_background_qtl_contrasts,
+
+  "yarn_primary_variance_components.csv" =
+    primary_variance_components,
+
+  "yarn_primary_residual_diagnostics.csv" =
+    primary_residuals,
+
+  "yarn_primary_residual_outliers_over_3sd.csv" =
+    primary_residual_outliers,
+
+  "yarn_primary_diagnostic_summary.csv" =
+    primary_diagnostic_summary,
+
+  "yarn_secondary_type3_tests.csv" =
+    secondary_type3_tests,
+
+  "yarn_secondary_overall_qtl_contrasts.csv" =
+    secondary_overall_qtl_contrasts,
+
+  "yarn_processing_type3_tests.csv" =
+    processing_type3_tests,
+
+  "yarn_processing_qtl_contrasts.csv" =
+    processing_qtl_contrasts,
+
+  "yarn_count_adjusted_type3.csv" =
+    count_adjusted_type3,
+
+  "yarn_count_adjusted_qtl_contrasts.csv" =
+    count_adjusted_qtl_contrasts,
+
+  "yarn_ratch_adjusted_type3.csv" =
+    ratch_adjusted_type3,
+
+  "yarn_ratch_adjusted_qtl_contrasts.csv" =
+    ratch_adjusted_qtl_contrasts,
+
+  "yarn_ratch3_population_audit.csv" =
+    ratch3_population_audit,
+
+  "yarn_ratch3_type3.csv" =
+    ratch3_type3,
+
+  "yarn_ratch3_qtl_contrasts.csv" =
+    ratch3_qtl_contrasts,
+
+  "yarn_qtl_sensitivity_comparison.csv" =
+    qtl_sensitivity_comparison,
+
+  "yarn_package_model_status.csv" =
+    package_model_status,
+
+  "yarn_package_qtl_contrasts.csv" =
+    package_qtl_contrasts,
+
+  "yarn_break_qc_by_package.csv" =
+    break_qc_by_package,
+
+  "yarn_break_qc_summary.csv" =
+    break_qc_summary,
+
+  "yarn_outlier_sensitivity_qtl.csv" =
+    outlier_sensitivity_qtl
+)
+
+purrr::iwalk(
+  output_tables,
+  function(data, file_name) {
+
+    readr::write_csv(
+      data,
+      file.path(
+        yarn_table_dir,
+        file_name
+      ),
+      na = ""
+    )
+  }
+)
+```
+
+# 35. Final analysis audit
+
+```{r final-analysis-audit}
+primary_failed <-
+  sum(
+    !primary_model_status$fitted
+  )
+
+primary_singular <-
+  sum(
+    primary_model_status$singular,
+    na.rm = TRUE
+  )
+
+primary_qtl_fdr_significant <-
+  primary_overall_qtl_contrasts |>
+  dplyr::filter(
+    fdr_p < 0.05
+  ) |>
+  nrow()
+
+primary_bgqtl_fdr_significant <-
+  primary_type3_tests |>
+  dplyr::filter(
+    effect ==
+      "background:qtl_status",
+    fdr_p < 0.05
+  ) |>
+  nrow()
+
+final_analysis_audit <- tibble::tibble(
+  check = c(
+    "Formal NIIL samples",
+    "Primary yarn traits requested",
+    "Primary models fitted",
+    "Primary models failed",
+    "Primary singular models",
+    "Primary overall QTL contrasts",
+    "Primary QTL contrasts FDR < 0.05",
+    "Background × QTL tests FDR < 0.05",
+    "Primary residual observations > |3 SD|",
+    "Package-level confirmation models",
+    "Technical-break rows"
+  ),
+  result = c(
+    nrow(
+      yarn_formal
+    ),
+    length(
+      primary_yarn_traits
+    ),
+    sum(
+      primary_model_status$fitted
+    ),
+    primary_failed,
+    primary_singular,
+    nrow(
+      primary_overall_qtl_contrasts
+    ),
+    primary_qtl_fdr_significant,
+    primary_bgqtl_fdr_significant,
+    nrow(
+      primary_residual_outliers
+    ),
+    sum(
+      package_model_status$fitted
+    ),
+    nrow(
+      break_formal
+    )
+  )
+)
+
+final_analysis_audit
+
+readr::write_csv(
+  final_analysis_audit,
+  file.path(
+    yarn_table_dir,
+    "yarn_final_analysis_audit.csv"
+  ),
+  na = ""
+)
+```
+
+# 36. Results-review tables
+
+```{r results-review}
+primary_qtl_review <- primary_overall_qtl_contrasts |>
+  dplyr::select(
+    trait,
+    trait_label,
+    estimate,
+    se,
+    df,
+    t_ratio,
+    p_value,
+    fdr_p
+  ) |>
+  dplyr::arrange(
+    fdr_p,
+    p_value
+  )
+
+background_interaction_review <- primary_type3_tests |>
+  dplyr::filter(
+    effect ==
+      "background:qtl_status"
+  ) |>
+  dplyr::select(
+    trait,
+    trait_label,
+    numerator_df,
+    denominator_df,
+    f_value,
+    p_value,
+    fdr_p
+  ) |>
+  dplyr::arrange(
+    fdr_p,
+    p_value
+  )
+
+primary_qtl_review
+background_interaction_review
+qtl_sensitivity_comparison
+```
+
+# 37. Final status
+
+```{r final-status}
+message(
+  "\n2022 yarn analysis completed."
+)
+
+message(
+  "\nFormal NIIL samples analyzed: ",
+  nrow(
+    yarn_formal
+  )
+)
+
+message(
+  "\nPrimary models fitted: ",
+  sum(
+    primary_model_status$fitted
+  ),
+  " of ",
+  length(
+    primary_yarn_traits
+  )
+)
+
+message(
+  "\nPrimary singular models: ",
+  primary_singular
+)
+
+message(
+  "\nPrimary QTL traits significant after FDR: ",
+  primary_qtl_fdr_significant
+)
+
+message(
+  "\nBackground × QTL interactions significant after FDR: ",
+  primary_bgqtl_fdr_significant
+)
+
+message(
+  "\nResidual observations flagged > |3 SD|: ",
+  nrow(
+    primary_residual_outliers
+  )
+)
+
+message(
+  "\nTables saved to:\n",
+  yarn_table_dir
+)
+
+message(
+  "\nFigures saved to:\n",
+  yarn_figure_dir
+)
+
+message(
+  "\nDiagnostics saved to:\n",
+  yarn_diagnostic_dir
+)
+```
+
+# 38. Session information
+
+```{r session-information}
+sessionInfo()
+```

@@ -1,0 +1,1556 @@
+---
+title: "2022 Sample-Key Import and Audit"
+author: "Samantha Wan"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    code_folding: show
+    df_print: paged
+
+knit: >
+  (function(input_file, encoding) {
+
+    project_root <- normalizePath(
+      "C:/Users/sjw23099/Desktop/End-Use Evaluation",
+      winslash = "/",
+      mustWork = TRUE
+    )
+
+    output_folder <- file.path(
+      project_root,
+      "05_results",
+      "notebook_outputs"
+    )
+
+    dir.create(
+      output_folder,
+      recursive = TRUE,
+      showWarnings = FALSE
+    )
+
+    rmarkdown::render(
+      input = input_file,
+      encoding = encoding,
+      output_dir = output_folder,
+      output_file = "01_import_sample_keys.html",
+      knit_root_dir = project_root
+    )
+  })
+---
+
+# Purpose
+
+This notebook creates the 2022 master sample key used to connect:
+
+- field samples;
+- genotypes and plots;
+- Micro IDs;
+- Fiber IDs;
+- MiniSpin run numbers;
+- draw-frame ratch settings;
+- AFIS processing stages;
+- MiniSpin processing records;
+- and later yarn-quality measurements.
+
+The final master key should contain one row per biological field sample.
+
+```{r setup, include=FALSE}
+# --------------------------------------------------------------------------
+# Define the project root
+# --------------------------------------------------------------------------
+
+project_root <- normalizePath(
+  "C:/Users/sjw23099/Desktop/End-Use Evaluation",
+  winslash = "/",
+  mustWork = TRUE
+)
+
+# Make all notebook chunks use the main project folder
+knitr::opts_knit$set(
+  root.dir = project_root
+)
+
+# Load project setup
+source(
+  file.path(
+    project_root,
+    "04_code",
+    "00_setup.R"
+  ),
+  local = knitr::knit_global()
+)
+
+# Notebook options
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = TRUE,
+  message = TRUE,
+  error = FALSE,
+  fig.width = 8,
+  fig.height = 6,
+  fig.path = file.path(
+    paths$notebook_figures,
+    "01_import_sample_keys-"
+  )
+)
+```
+
+# 1. Purpose
+
+This notebook creates the 2022 master sample key connecting field samples,
+genotypes, plots, Fiber IDs, MiniSpin run numbers, AFIS processing stages,
+processing records, and subsequent yarn measurements.
+
+The final master key should contain one row per biological field sample.
+
+# 2. Locate input workbooks
+
+```{r locate-input-files}
+find_single_workbook <- function(pattern, description) {
+
+  matches <- list.files(
+    paths$data_raw,
+    pattern = pattern,
+    full.names = TRUE,
+    ignore.case = TRUE
+  )
+
+  if (length(matches) == 0) {
+    stop(
+      "No ", description, " workbook was found in:\n",
+      paths$data_raw
+    )
+  }
+
+  if (length(matches) > 1) {
+    stop(
+      "More than one ", description, " workbook was found:\n",
+      paste(basename(matches), collapse = "\n")
+    )
+  }
+
+  matches
+}
+
+yarn_file <- find_single_workbook(
+  "^UGA MSL Yarn Results.*\\.xlsx$",
+  "yarn"
+)
+
+afis_file <- find_single_workbook(
+  "^UGA AFIS Results.*\\.xlsx$",
+  "AFIS"
+)
+
+minispin_file <- find_single_workbook(
+  "^2022 UGA Mini-Spin Raw Data.*\\.xlsx$",
+  "MiniSpin"
+)
+
+input_file_check <- tibble::tibble(
+  workbook = c("Yarn", "AFIS", "MiniSpin"),
+  filename = basename(
+    c(yarn_file, afis_file, minispin_file)
+  ),
+  exists = file.exists(
+    c(yarn_file, afis_file, minispin_file)
+  ),
+  full_path = c(
+    yarn_file,
+    afis_file,
+    minispin_file
+  )
+)
+
+input_file_check
+```
+
+# 3. Inspect workbook sheets
+
+```{r inspect-sheets}
+sheet_inventory <- dplyr::bind_rows(
+
+  tibble::tibble(
+    workbook = "Yarn",
+    sheet = readxl::excel_sheets(yarn_file)
+  ),
+
+  tibble::tibble(
+    workbook = "AFIS",
+    sheet = readxl::excel_sheets(afis_file)
+  ),
+
+  tibble::tibble(
+    workbook = "MiniSpin",
+    sheet = readxl::excel_sheets(minispin_file)
+  )
+)
+
+sheet_inventory
+```
+
+# 4. Column-location helper
+
+```{r column-helper}
+find_column <- function(
+  data,
+  candidates,
+  required = TRUE,
+  description = "required"
+) {
+
+  match <- candidates[
+    candidates %in% names(data)
+  ][1]
+
+  if (
+    length(match) == 0 ||
+    is.na(match)
+  ) {
+
+    if (required) {
+      stop(
+        "\nCould not locate the ",
+        description,
+        " column.\n\nCandidate names:\n",
+        paste(candidates, collapse = ", "),
+        "\n\nAvailable names:\n",
+        paste(names(data), collapse = ", ")
+      )
+    }
+
+    return(NA_character_)
+  }
+
+  match
+}
+```
+
+# 5. Improved genotype-name standardization
+
+The original labels include suffixes such as `_01`. These suffixes are
+removed before genotype names are matched.
+
+```{r genotype-standardization}
+standardize_genotype_2022 <- function(x) {
+
+  cleaned <- x |>
+    as.character() |>
+    stringr::str_trim() |>
+
+    # Remove trailing replicate/version suffixes such as _01
+    stringr::str_remove(
+      regex(
+        "[_-]0*[0-9]+$",
+        ignore_case = TRUE
+      )
+    ) |>
+
+    stringr::str_replace_all(
+      "[[:space:]_-]+",
+      ""
+    ) |>
+
+    stringr::str_to_upper()
+
+  dplyr::recode(
+
+    cleaned,
+
+    "AC107NEG" = "AC107Neg",
+    "AC107POS" = "AC107Pos",
+
+    "AC164NEG" = "AC164Neg",
+    "AC164POS" = "AC164Pos",
+
+    "ACSJ4" = "ACSJ4",
+    "ACALASJ4" = "ACSJ4",
+
+    "DP213NEG" = "DP213Neg",
+    "DP213POS" = "DP213Pos",
+
+    "DP263NEG" = "DP263Neg",
+    "DP263POS" = "DP263Pos",
+
+    "DP50" = "DP50",
+    "DELTAPINE50" = "DP50",
+
+    "GA428NEG" = "GA428Neg",
+    "GA428POS" = "GA428Pos",
+
+    "GA437NEG" = "GA437Neg",
+    "GA437POS" = "GA437Pos",
+
+    "GA089" = "GA089",
+    "GA2004089" = "GA089",
+
+    "PM304NEG" = "PM304Neg",
+    "PM304POS" = "PM304Pos",
+
+    "PM321NEG" = "PM321Neg",
+    "PM321POS" = "PM321Pos",
+
+    "PMHS26" = "PMHS26",
+    "PAYMASTERHS26" = "PMHS26",
+
+    "SEALAND883" = "SL883",
+    "SL883" = "SL883",
+
+    # Labels observed in the 2022 cross-reference
+    "GA2018001" = "GA201800",
+    "GA2018081" = "GA201808",
+
+    "GA201800" = "GA201800",
+    "GA201808" = "GA201808",
+
+    .default = NA_character_
+  )
+}
+```
+
+# 6. Import yarn cross-reference
+
+```{r import-cross-reference}
+cross_ref_raw <- readxl::read_excel(
+  yarn_file,
+  sheet = "ID Cross-Ref"
+) |>
+  janitor::clean_names()
+
+dplyr::glimpse(cross_ref_raw)
+
+tibble::tibble(
+  column_number = seq_along(names(cross_ref_raw)),
+  column_name = names(cross_ref_raw)
+)
+```
+
+# 7. Identify cross-reference columns
+
+```{r identify-cross-reference-columns}
+cross_sample_col <- find_column(
+  cross_ref_raw,
+  c(
+    "sample",
+    "sample_id",
+    "field_sample",
+    "field_sample_id",
+    "id"
+  ),
+  description = "field sample ID"
+)
+
+cross_genotype_col <- find_column(
+  cross_ref_raw,
+  c(
+    "name",
+    "genotype",
+    "entry",
+    "line"
+  ),
+  description = "genotype"
+)
+
+cross_micro_col <- find_column(
+  cross_ref_raw,
+  c(
+    "micro_id",
+    "microid",
+    "micro"
+  ),
+  required = FALSE,
+  description = "Micro ID"
+)
+
+cross_plot_col <- find_column(
+  cross_ref_raw,
+  c(
+    "plot",
+    "plot_number",
+    "plot_no"
+  ),
+  required = FALSE,
+  description = "plot"
+)
+
+cross_fiber_col <- find_column(
+  cross_ref_raw,
+  c(
+    "fiber_id",
+    "fiberid",
+    "fiber"
+  ),
+  description = "Fiber ID"
+)
+
+cross_run_col <- find_column(
+  cross_ref_raw,
+  c(
+    "run_number",
+    "run",
+    "minispin_run",
+    "process_id",
+    "process"
+  ),
+  description = "MiniSpin run"
+)
+
+cross_length_col <- find_column(
+  cross_ref_raw,
+  c(
+    "hvi_length",
+    "length",
+    "uhml",
+    "hvi_uhml"
+  ),
+  required = FALSE,
+  description = "HVI length"
+)
+
+cross_ratch_col <- find_column(
+  cross_ref_raw,
+  c(
+    "ratch",
+    "roll_spacing",
+    "roller_spacing"
+  ),
+  required = FALSE,
+  description = "ratch"
+)
+```
+
+# 8. Clean cross-reference records
+
+```{r clean-cross-reference}
+cross_ref <- tibble::tibble(
+
+  field_sample_id = clean_identifier(
+    cross_ref_raw[[cross_sample_col]]
+  ),
+
+  genotype_original = as.character(
+    cross_ref_raw[[cross_genotype_col]]
+  ),
+
+  genotype = standardize_genotype_2022(
+    cross_ref_raw[[cross_genotype_col]]
+  ),
+
+  micro_id = if (!is.na(cross_micro_col)) {
+    clean_identifier(
+      cross_ref_raw[[cross_micro_col]]
+    )
+  } else {
+    NA_character_
+  },
+
+  plot = if (!is.na(cross_plot_col)) {
+    safe_numeric(
+      cross_ref_raw[[cross_plot_col]]
+    )
+  } else {
+    NA_real_
+  },
+
+  fiber_id = clean_identifier(
+    cross_ref_raw[[cross_fiber_col]]
+  ),
+
+  minispin_run = clean_identifier(
+    cross_ref_raw[[cross_run_col]]
+  ),
+
+  hvi_length_for_ratch = if (!is.na(cross_length_col)) {
+    safe_numeric(
+      cross_ref_raw[[cross_length_col]]
+    )
+  } else {
+    NA_real_
+  },
+
+  ratch = if (!is.na(cross_ratch_col)) {
+    safe_numeric(
+      cross_ref_raw[[cross_ratch_col]]
+    )
+  } else {
+    NA_real_
+  }
+
+) |>
+
+  dplyr::left_join(
+    genotype_key,
+    by = "genotype"
+  ) |>
+
+  dplyr::mutate(
+
+    # Provisional field-replication inference from plot prefix
+    plot_prefix = stringr::str_sub(
+      as.character(as.integer(plot)),
+      1,
+      2
+    ),
+
+    field_rep_inferred = dplyr::recode(
+      plot_prefix,
+      "11" = 1L,
+      "12" = 2L,
+      "13" = 3L,
+      "14" = 4L,
+      .default = NA_integer_
+    )
+  )
+
+dplyr::glimpse(cross_ref)
+```
+
+The inferred replication should be checked against the original field map
+before it is used as the final replication variable.
+
+# 9. Genotype audit
+
+```{r genotype-audit}
+unrecognized_genotypes <- cross_ref |>
+  dplyr::filter(
+    is.na(genotype)
+  ) |>
+  dplyr::distinct(
+    genotype_original
+  ) |>
+  dplyr::arrange(
+    genotype_original
+  )
+
+unrecognized_genotypes
+```
+
+```{r genotype-counts}
+genotype_sample_counts <- cross_ref |>
+  dplyr::count(
+    genotype_original,
+    genotype,
+    background,
+    nil_set,
+    qtl_status,
+    material_type,
+    name = "n_samples"
+  ) |>
+  dplyr::arrange(
+    background,
+    nil_set,
+    genotype
+  )
+
+genotype_sample_counts
+```
+
+# 10. Import AFIS averages
+
+```{r import-afis}
+afis_avg_raw <- readxl::read_excel(
+  afis_file,
+  sheet = "Afis Avg"
+) |>
+  janitor::clean_names()
+
+dplyr::glimpse(afis_avg_raw)
+
+tibble::tibble(
+  column_number = seq_along(names(afis_avg_raw)),
+  column_name = names(afis_avg_raw)
+)
+```
+
+# 11. Identify AFIS columns
+
+```{r identify-afis-columns}
+afis_sample_col <- find_column(
+  afis_avg_raw,
+  c(
+    "sample",
+    "sample_id",
+    "fiber_id",
+    "fiberid",
+    "id"
+  ),
+  description = "AFIS sample ID"
+)
+
+afis_stage_col <- find_column(
+  afis_avg_raw,
+  c(
+    "processing_stage",
+    "stage",
+    "process_stage",
+    "processing"
+  ),
+  required = FALSE,
+  description = "AFIS processing stage"
+)
+
+afis_run_col <- find_column(
+  afis_avg_raw,
+  c(
+    "run_number",
+    "run",
+    "minispin_run",
+    "process_id"
+  ),
+  required = FALSE,
+  description = "AFIS MiniSpin run"
+)
+```
+
+# 12. Clean AFIS stage identifiers
+
+The AFIS Fiber ID contains a processing-stage suffix:
+
+- no suffix = Bale;
+- `A` = Opened;
+- `B` = Carded;
+- `C3` = Sliver.
+
+```{r clean-afis-identifiers}
+afis_ids <- tibble::tibble(
+
+  afis_fiber_id_original = clean_identifier(
+    afis_avg_raw[[afis_sample_col]]
+  ),
+
+  minispin_run = if (!is.na(afis_run_col)) {
+    clean_identifier(
+      afis_avg_raw[[afis_run_col]]
+    )
+  } else {
+    NA_character_
+  },
+
+  processing_stage_original = if (!is.na(afis_stage_col)) {
+    as.character(
+      afis_avg_raw[[afis_stage_col]]
+    )
+  } else {
+    NA_character_
+  }
+
+) |>
+
+  dplyr::mutate(
+
+    afis_suffix = dplyr::case_when(
+
+      stringr::str_detect(
+        afis_fiber_id_original,
+        stringr::regex(
+          "C3$",
+          ignore_case = TRUE
+        )
+      ) ~ "C3",
+
+      stringr::str_detect(
+        afis_fiber_id_original,
+        stringr::regex(
+          "A$",
+          ignore_case = TRUE
+        )
+      ) ~ "A",
+
+      stringr::str_detect(
+        afis_fiber_id_original,
+        stringr::regex(
+          "B$",
+          ignore_case = TRUE
+        )
+      ) ~ "B",
+
+      TRUE ~ ""
+    ),
+
+    # Remove C3 before removing single-letter suffixes
+    fiber_id = afis_fiber_id_original |>
+
+      stringr::str_remove(
+        stringr::regex(
+          "C3$",
+          ignore_case = TRUE
+        )
+      ) |>
+
+      stringr::str_remove(
+        stringr::regex(
+          "[AB]$",
+          ignore_case = TRUE
+        )
+      ),
+
+    stage_from_suffix = dplyr::case_when(
+      afis_suffix == "" ~ "Bale",
+      afis_suffix == "A" ~ "Opened",
+      afis_suffix == "B" ~ "Carded",
+      afis_suffix == "C3" ~ "Sliver",
+      TRUE ~ NA_character_
+    ),
+
+    stage_from_column = if (!is.na(afis_stage_col)) {
+
+      standardize_stage(
+        processing_stage_original
+      )
+
+    } else {
+
+      NA_character_
+
+    },
+
+    processing_stage = dplyr::coalesce(
+      stage_from_column,
+      stage_from_suffix
+    ),
+
+    stage_agreement = dplyr::case_when(
+      is.na(stage_from_column) ~ NA,
+      stage_from_column == stage_from_suffix ~ TRUE,
+      TRUE ~ FALSE
+    )
+  )
+
+dplyr::glimpse(afis_ids)
+```
+
+
+# 13. Confirm AFIS suffix interpretation
+
+```{r afis-suffix-audit}
+afis_suffix_audit <- afis_ids |>
+  dplyr::count(
+    afis_suffix,
+    stage_from_suffix,
+    processing_stage,
+    name = "n_records"
+  ) |>
+  dplyr::arrange(
+    processing_stage
+  )
+
+afis_suffix_audit
+```
+
+```{r afis-stage-agreement}
+afis_ids |>
+  dplyr::count(
+    stage_agreement,
+    name = "n_records"
+  )
+```
+
+# 14. Detect duplicate AFIS stages
+
+```{r afis-duplicate-check}
+duplicate_afis_stage_records <- afis_ids |>
+  dplyr::count(
+    fiber_id,
+    minispin_run,
+    processing_stage,
+    name = "n_records"
+  ) |>
+  dplyr::filter(
+    n_records > 1
+  )
+
+duplicate_afis_stage_records
+```
+
+# 15. Build one AFIS completeness row per sample
+
+```{r build-afis-completeness}
+afis_stage_summary <- afis_ids |>
+  dplyr::count(
+    fiber_id,
+    minispin_run,
+    processing_stage,
+    name = "n_records"
+  ) |>
+
+  tidyr::pivot_wider(
+    names_from = processing_stage,
+    values_from = n_records,
+    values_fill = 0,
+    names_prefix = "afis_"
+  )
+```
+
+```{r ensure-afis-stage-columns}
+expected_afis_columns <- c(
+  "afis_Bale",
+  "afis_Opened",
+  "afis_Carded",
+  "afis_Sliver"
+)
+
+for (column_name in expected_afis_columns) {
+
+  if (!column_name %in% names(afis_stage_summary)) {
+    afis_stage_summary[[column_name]] <- 0L
+  }
+}
+```
+
+```{r calculate-afis-completeness}
+afis_stage_summary <- afis_stage_summary |>
+  dplyr::mutate(
+
+    afis_stage_count =
+      as.integer(afis_Bale > 0) +
+      as.integer(afis_Opened > 0) +
+      as.integer(afis_Carded > 0) +
+      as.integer(afis_Sliver > 0),
+
+    afis_all_four_stages =
+      afis_Bale == 1 &
+      afis_Opened == 1 &
+      afis_Carded == 1 &
+      afis_Sliver == 1,
+
+    afis_duplicate_stage =
+      afis_Bale > 1 |
+      afis_Opened > 1 |
+      afis_Carded > 1 |
+      afis_Sliver > 1
+  )
+
+afis_stage_summary |>
+  dplyr::count(
+    afis_stage_count,
+    afis_all_four_stages,
+    afis_duplicate_stage
+  )
+```
+
+The corrected AFIS completeness table should contain approximately 92 rows.
+
+# 16. Import MiniSpin processing data
+
+```{r import-processing-data}
+# Row 1 contains grouped section headings.
+# Row 2 contains the actual column names.
+processing_raw <- readxl::read_excel(
+  yarn_file,
+  sheet = "MSL Processing Data",
+  skip = 1
+) |>
+  janitor::clean_names()
+
+dplyr::glimpse(processing_raw)
+
+tibble::tibble(
+  column_number = seq_along(names(processing_raw)),
+  column_name = names(processing_raw)
+)
+```
+
+
+# 17. Identify processing-data columns
+
+```{r identify-processing-columns}
+processing_fiber_col <- find_column(
+  processing_raw,
+  c(
+    "fiber_id",
+    "fiberid",
+    "fiber",
+    "sample",
+    "sample_id"
+  ),
+  required = FALSE,
+  description = "processing Fiber ID"
+)
+
+processing_run_col <- find_column(
+  processing_raw,
+  c(
+    "process_id",
+    "run_number",
+    "run",
+    "minispin_run",
+    "process"
+  ),
+  required = FALSE,
+  description = "processing run"
+)
+
+processing_column_map <- tibble::tibble(
+  variable = c(
+    "fiber_id",
+    "minispin_run"
+  ),
+  source_column = c(
+    processing_fiber_col,
+    processing_run_col
+  )
+)
+
+processing_column_map
+```
+
+# 18. Clean processing identifiers
+
+```{r clean-processing-identifiers}
+if (
+  is.na(processing_fiber_col) &&
+  is.na(processing_run_col)
+) {
+
+  processing_ids <- tibble::tibble(
+    fiber_id = character(),
+    minispin_run = character(),
+    processing_record_available = logical()
+  )
+
+  warning(
+    "No processing Fiber ID or run column was identified."
+  )
+
+} else {
+
+  processing_ids <- tibble::tibble(
+
+    fiber_id = if (!is.na(processing_fiber_col)) {
+      clean_identifier(
+        processing_raw[[processing_fiber_col]]
+      )
+    } else {
+      NA_character_
+    },
+
+    minispin_run = if (!is.na(processing_run_col)) {
+      clean_identifier(
+        processing_raw[[processing_run_col]]
+      )
+    } else {
+      NA_character_
+    },
+
+    processing_record_available = TRUE
+
+  ) |>
+
+    dplyr::filter(
+      !is.na(fiber_id) |
+      !is.na(minispin_run)
+    ) |>
+
+    dplyr::distinct()
+}
+
+dplyr::glimpse(processing_ids)
+```
+
+# 19. Determine processing join method
+
+Use both identifiers when both are populated and unique. Otherwise, use
+the identifier available in the processing workbook.
+
+```{r choose-processing-join}
+processing_has_fiber <- (
+  nrow(processing_ids) > 0 &&
+  any(!is.na(processing_ids$fiber_id))
+)
+
+processing_has_run <- (
+  nrow(processing_ids) > 0 &&
+  any(!is.na(processing_ids$minispin_run))
+)
+
+processing_duplicate_fiber <- processing_ids |>
+  dplyr::filter(!is.na(fiber_id)) |>
+  dplyr::count(fiber_id) |>
+  dplyr::filter(n > 1)
+
+processing_duplicate_run <- processing_ids |>
+  dplyr::filter(!is.na(minispin_run)) |>
+  dplyr::count(minispin_run) |>
+  dplyr::filter(n > 1)
+
+processing_duplicate_fiber
+processing_duplicate_run
+```
+
+# 20. Build master sample key
+
+```{r build-master-key}
+sample_key_2022 <- cross_ref |>
+
+  dplyr::left_join(
+    afis_stage_summary,
+    by = c(
+      "fiber_id",
+      "minispin_run"
+    )
+  )
+```
+
+```{r add-processing-records}
+if (
+  processing_has_fiber &&
+  processing_has_run
+) {
+
+  sample_key_2022 <- sample_key_2022 |>
+    dplyr::left_join(
+      processing_ids,
+      by = c(
+        "fiber_id",
+        "minispin_run"
+      )
+    )
+
+  processing_join_method <-
+    "fiber_id + minispin_run"
+
+} else if (
+  processing_has_run &&
+  nrow(processing_duplicate_run) == 0
+) {
+
+  sample_key_2022 <- sample_key_2022 |>
+    dplyr::left_join(
+      processing_ids |>
+        dplyr::select(
+          minispin_run,
+          processing_record_available
+        ) |>
+        dplyr::distinct(),
+      by = "minispin_run"
+    )
+
+  processing_join_method <- "minispin_run"
+
+} else if (
+  processing_has_fiber &&
+  nrow(processing_duplicate_fiber) == 0
+) {
+
+  sample_key_2022 <- sample_key_2022 |>
+    dplyr::left_join(
+      processing_ids |>
+        dplyr::select(
+          fiber_id,
+          processing_record_available
+        ) |>
+        dplyr::distinct(),
+      by = "fiber_id"
+    )
+
+  processing_join_method <- "fiber_id"
+
+} else {
+
+  sample_key_2022 <- sample_key_2022 |>
+    dplyr::mutate(
+      processing_record_available = NA
+    )
+
+  processing_join_method <-
+    "No verified processing join"
+}
+
+processing_join_method
+```
+
+# 21. Finalize master-key flags
+
+```{r finalize-master-key}
+sample_key_2022 <- sample_key_2022 |>
+  dplyr::mutate(
+
+    afis_Bale = dplyr::coalesce(
+      afis_Bale,
+      0L
+    ),
+
+    afis_Opened = dplyr::coalesce(
+      afis_Opened,
+      0L
+    ),
+
+    afis_Carded = dplyr::coalesce(
+      afis_Carded,
+      0L
+    ),
+
+    afis_Sliver = dplyr::coalesce(
+      afis_Sliver,
+      0L
+    ),
+
+    afis_stage_count = dplyr::coalesce(
+      afis_stage_count,
+      0L
+    ),
+
+    afis_all_four_stages = dplyr::coalesce(
+      afis_all_four_stages,
+      FALSE
+    ),
+
+    afis_duplicate_stage = dplyr::coalesce(
+      afis_duplicate_stage,
+      FALSE
+    ),
+
+    processing_record_available =
+      dplyr::coalesce(
+        as.logical(
+          processing_record_available
+        ),
+        FALSE
+      ),
+
+    core_identifiers_complete =
+      !is.na(field_sample_id) &
+      !is.na(genotype) &
+      !is.na(micro_id) &
+      !is.na(plot) &
+      !is.na(fiber_id) &
+      !is.na(minispin_run),
+
+    sample_key_complete =
+      core_identifiers_complete &
+      afis_all_four_stages &
+      processing_record_available
+  ) |>
+
+  dplyr::arrange(
+    background,
+    nil_set,
+    genotype,
+    field_rep_inferred,
+    plot
+  )
+
+dplyr::glimpse(sample_key_2022)
+```
+
+# 22. Duplicate master-key identifiers
+
+```{r duplicate-master-identifiers}
+duplicate_field_sample_ids <- sample_key_2022 |>
+  dplyr::count(
+    field_sample_id,
+    name = "n_records"
+  ) |>
+  dplyr::filter(
+    !is.na(field_sample_id),
+    n_records > 1
+  )
+
+duplicate_micro_ids <- sample_key_2022 |>
+  dplyr::count(
+    micro_id,
+    name = "n_records"
+  ) |>
+  dplyr::filter(
+    !is.na(micro_id),
+    n_records > 1
+  )
+
+duplicate_fiber_ids <- sample_key_2022 |>
+  dplyr::count(
+    fiber_id,
+    name = "n_records"
+  ) |>
+  dplyr::filter(
+    !is.na(fiber_id),
+    n_records > 1
+  )
+
+duplicate_minispin_runs <- sample_key_2022 |>
+  dplyr::count(
+    minispin_run,
+    name = "n_records"
+  ) |>
+  dplyr::filter(
+    !is.na(minispin_run),
+    n_records > 1
+  )
+
+duplicate_field_sample_ids
+duplicate_micro_ids
+duplicate_fiber_ids
+duplicate_minispin_runs
+```
+
+# 23. Identify unresolved records
+
+```{r unresolved-records}
+samples_missing_core_identifiers <- sample_key_2022 |>
+  dplyr::filter(
+    !core_identifiers_complete
+  )
+
+samples_missing_afis_stages <- sample_key_2022 |>
+  dplyr::filter(
+    !afis_all_four_stages
+  )
+
+samples_with_duplicate_afis_stages <- sample_key_2022 |>
+  dplyr::filter(
+    afis_duplicate_stage
+  )
+
+samples_missing_processing <- sample_key_2022 |>
+  dplyr::filter(
+    !processing_record_available
+  )
+
+samples_incomplete_key <- sample_key_2022 |>
+  dplyr::filter(
+    !sample_key_complete
+  )
+
+samples_missing_core_identifiers
+samples_missing_afis_stages
+samples_with_duplicate_afis_stages
+samples_missing_processing
+```
+
+# 24. Final audit summary
+
+```{r final-audit-summary}
+audit_summary <- tibble::tibble(
+
+  check = c(
+    "Master sample-key rows",
+    "Unique field-sample IDs",
+    "Unique Micro IDs",
+    "Unique plots",
+    "Unique Fiber IDs",
+    "Unique MiniSpin runs",
+    "Recognized genotype records",
+    "Unrecognized genotype records",
+    "AFIS raw rows",
+    "AFIS completeness rows",
+    "Samples with all four AFIS stages",
+    "Samples with duplicate AFIS stages",
+    "Samples with processing records",
+    "Samples with complete core identifiers",
+    "Samples passing complete-key check",
+    "Duplicate field-sample IDs",
+    "Duplicate Micro IDs",
+    "Duplicate Fiber IDs",
+    "Duplicate MiniSpin runs"
+  ),
+
+  observed = c(
+
+    nrow(sample_key_2022),
+
+    dplyr::n_distinct(
+      sample_key_2022$field_sample_id,
+      na.rm = TRUE
+    ),
+
+    dplyr::n_distinct(
+      sample_key_2022$micro_id,
+      na.rm = TRUE
+    ),
+
+    dplyr::n_distinct(
+      sample_key_2022$plot,
+      na.rm = TRUE
+    ),
+
+    dplyr::n_distinct(
+      sample_key_2022$fiber_id,
+      na.rm = TRUE
+    ),
+
+    dplyr::n_distinct(
+      sample_key_2022$minispin_run,
+      na.rm = TRUE
+    ),
+
+    sum(
+      !is.na(sample_key_2022$genotype)
+    ),
+
+    sum(
+      is.na(sample_key_2022$genotype)
+    ),
+
+    nrow(afis_ids),
+
+    nrow(afis_stage_summary),
+
+    sum(
+      sample_key_2022$afis_all_four_stages
+    ),
+
+    sum(
+      sample_key_2022$afis_duplicate_stage
+    ),
+
+    sum(
+      sample_key_2022$processing_record_available
+    ),
+
+    sum(
+      sample_key_2022$core_identifiers_complete
+    ),
+
+    sum(
+      sample_key_2022$sample_key_complete
+    ),
+
+    nrow(duplicate_field_sample_ids),
+    nrow(duplicate_micro_ids),
+    nrow(duplicate_fiber_ids),
+    nrow(duplicate_minispin_runs)
+  ),
+
+  expected = c(
+    92,
+    92,
+    92,
+    92,
+    92,
+    92,
+    92,
+    0,
+    368,
+    92,
+    92,
+    0,
+    92,
+    92,
+    92,
+    0,
+    0,
+    0,
+    0
+  )
+) |>
+
+  dplyr::mutate(
+    status = dplyr::if_else(
+      observed == expected,
+      "PASS",
+      "REVIEW"
+    )
+  )
+
+audit_summary
+```
+
+# 25. Save processed outputs
+
+```{r save-processed-outputs}
+readr::write_csv(
+  sample_key_2022,
+  file.path(
+    paths$data_processed,
+    "sample_key_2022.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  cross_ref,
+  file.path(
+    paths$data_processed,
+    "yarn_cross_reference_2022_clean.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  afis_ids,
+  file.path(
+    paths$data_processed,
+    "afis_identifiers_2022_clean.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  afis_stage_summary,
+  file.path(
+    paths$data_processed,
+    "afis_stage_completeness_2022.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  genotype_sample_counts,
+  file.path(
+    paths$data_processed,
+    "genotype_sample_counts_2022.csv"
+  ),
+  na = ""
+)
+```
+
+# 26. Save audit outputs
+
+```{r save-audit-outputs}
+readr::write_csv(
+  audit_summary,
+  file.path(
+    paths$audit,
+    "sample_key_2022_audit_summary.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  unrecognized_genotypes,
+  file.path(
+    paths$audit,
+    "unrecognized_genotype_labels.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  afis_suffix_audit,
+  file.path(
+    paths$audit,
+    "afis_suffix_audit.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  duplicate_afis_stage_records,
+  file.path(
+    paths$audit,
+    "duplicate_afis_stage_records.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  samples_missing_core_identifiers,
+  file.path(
+    paths$audit,
+    "samples_missing_core_identifiers.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  samples_missing_afis_stages,
+  file.path(
+    paths$audit,
+    "samples_missing_afis_stages.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  samples_with_duplicate_afis_stages,
+  file.path(
+    paths$audit,
+    "samples_with_duplicate_afis_stages.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  samples_missing_processing,
+  file.path(
+    paths$audit,
+    "samples_missing_processing_records.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  samples_incomplete_key,
+  file.path(
+    paths$audit,
+    "samples_incomplete_sample_key.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  processing_column_map,
+  file.path(
+    paths$audit,
+    "processing_column_map.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  processing_duplicate_fiber,
+  file.path(
+    paths$audit,
+    "duplicate_processing_fiber_ids.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  processing_duplicate_run,
+  file.path(
+    paths$audit,
+    "duplicate_processing_run_ids.csv"
+  ),
+  na = ""
+)
+```
+
+# 27. Final status
+
+```{r final-status}
+message(
+  "\nProcessing join method: ",
+  processing_join_method
+)
+
+message(
+  "\nRecognized genotypes: ",
+  sum(!is.na(sample_key_2022$genotype)),
+  " of ",
+  nrow(sample_key_2022)
+)
+
+message(
+  "\nSamples with all four AFIS stages: ",
+  sum(sample_key_2022$afis_all_four_stages),
+  " of ",
+  nrow(sample_key_2022)
+)
+
+message(
+  "\nSamples with processing records: ",
+  sum(sample_key_2022$processing_record_available),
+  " of ",
+  nrow(sample_key_2022)
+)
+
+message(
+  "\nComplete master-key records: ",
+  sum(sample_key_2022$sample_key_complete),
+  " of ",
+  nrow(sample_key_2022)
+)
+
+message(
+  "\nMaster sample key saved to:\n",
+  file.path(
+    paths$data_processed,
+    "sample_key_2022.csv"
+  )
+)
+```
+

@@ -1,0 +1,24 @@
+genotype,background,nil_set,qtl_status,material_type
+AC107Neg,Acala,AC107,Negative,NIIL
+AC107Pos,Acala,AC107,Positive,NIIL
+AC164Neg,Acala,AC164,Negative,NIIL
+AC164Pos,Acala,AC164,Positive,NIIL
+ACSJ4,Acala,,Parent_Check,Recurrent parent
+DP213Neg,Deltapine,DP213,Negative,NIIL
+DP213Pos,Deltapine,DP213,Positive,NIIL
+DP263Neg,Deltapine,DP263,Negative,NIIL
+DP263Pos,Deltapine,DP263,Positive,NIIL
+DP50,Deltapine,,Parent_Check,Recurrent parent
+GA428Neg,Georgia,GA428,Negative,NIIL
+GA428Pos,Georgia,GA428,Positive,NIIL
+GA437Neg,Georgia,GA437,Negative,NIIL
+GA437Pos,Georgia,GA437,Positive,NIIL
+GA089,Georgia,,Parent_Check,Recurrent parent
+PM304Neg,Paymaster,PM304,Negative,NIIL
+PM304Pos,Paymaster,PM304,Positive,NIIL
+PM321Neg,Paymaster,PM321,Negative,NIIL
+PM321Pos,Paymaster,PM321,Positive,NIIL
+PMHS26,Paymaster,,Parent_Check,Recurrent parent
+SL883,Donor,,Parent_Check,QTL donor
+GA201800,Check,,Parent_Check,Check
+GA201808,Check,,Parent_Check,Check

@@ -1,0 +1,1469 @@
+---
+title: "2022 Four-Stage AFIS Data Cleaning"
+author: "Samantha Wan"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    code_folding: show
+    df_print: paged
+
+knit: >
+  (function(input_file, encoding) {
+
+    project_root <- normalizePath(
+      "C:/Users/sjw23099/Desktop/End-Use Evaluation",
+      winslash = "/",
+      mustWork = TRUE
+    )
+
+    output_folder <- file.path(
+      project_root,
+      "05_results",
+      "notebook_outputs"
+    )
+
+    dir.create(
+      output_folder,
+      recursive = TRUE,
+      showWarnings = FALSE
+    )
+
+    rmarkdown::render(
+      input = input_file,
+      encoding = encoding,
+      output_dir = output_folder,
+      output_file = "02_clean_AFIS_data.html",
+      knit_root_dir = project_root
+    )
+  })
+---
+
+# Purpose
+
+This notebook creates an analysis-ready four-stage AFIS dataset for the
+2022 qFL-Chr.25 end-use evaluation.
+
+The workflow:
+
+1. imports the validated master sample key;
+2. imports the `Afis Avg` worksheet;
+3. reconstructs the base Fiber ID and processing stage;
+4. joins AFIS records to genotype and field information;
+5. standardizes AFIS trait names;
+6. audits missing values and duplicate records;
+7. creates long- and wide-format datasets;
+8. saves processed data and audit outputs.
+
+```{r setup, include=FALSE}
+project_root <- normalizePath(
+  "C:/Users/sjw23099/Desktop/End-Use Evaluation",
+  winslash = "/",
+  mustWork = TRUE
+)
+
+knitr::opts_knit$set(
+  root.dir = project_root
+)
+
+source(
+  file.path(
+    project_root,
+    "04_code",
+    "00_setup.R"
+  ),
+  local = knitr::knit_global()
+)
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = TRUE,
+  message = TRUE,
+  error = FALSE,
+  fig.width = 9,
+  fig.height = 6,
+  fig.path = file.path(
+    paths$notebook_figures,
+    "02_clean_AFIS_data-"
+  )
+)
+```
+
+# 1. Locate required files
+
+```{r locate-files}
+sample_key_file <- file.path(
+  paths$data_processed,
+  "sample_key_2022.csv"
+)
+
+afis_matches <- list.files(
+  paths$data_raw,
+  pattern = "^UGA AFIS Results.*\\.xlsx$",
+  full.names = TRUE,
+  ignore.case = TRUE
+)
+
+if (!file.exists(sample_key_file)) {
+  stop(
+    "The validated sample key was not found:\n",
+    sample_key_file
+  )
+}
+
+if (length(afis_matches) == 0) {
+  stop(
+    "No AFIS workbook was found in:\n",
+    paths$data_raw
+  )
+}
+
+if (length(afis_matches) > 1) {
+  stop(
+    "More than one AFIS workbook was found:\n",
+    paste(
+      basename(afis_matches),
+      collapse = "\n"
+    )
+  )
+}
+
+afis_file <- afis_matches
+
+file_check <- tibble::tibble(
+  file_type = c(
+    "Validated sample key",
+    "AFIS workbook"
+  ),
+  filename = c(
+    basename(sample_key_file),
+    basename(afis_file)
+  ),
+  exists = c(
+    file.exists(sample_key_file),
+    file.exists(afis_file)
+  ),
+  full_path = c(
+    sample_key_file,
+    afis_file
+  )
+)
+
+file_check
+```
+
+# 2. Import the validated sample key
+
+```{r import-sample-key}
+sample_key <- readr::read_csv(
+  sample_key_file,
+  show_col_types = FALSE,
+  col_types = readr::cols(
+    fiber_id = readr::col_character(),
+    minispin_run = readr::col_character(),
+    .default = readr::col_guess()
+  )
+) |>
+  janitor::clean_names() |>
+  dplyr::mutate(
+    fiber_id = clean_identifier(fiber_id),
+    minispin_run = clean_identifier(minispin_run)
+  )
+
+dplyr::glimpse(sample_key)
+```
+
+## Sample-key validation
+
+```{r validate-sample-key}
+sample_key_validation <- sample_key |>
+  dplyr::summarise(
+    rows = dplyr::n(),
+
+    unique_field_samples = dplyr::n_distinct(
+      field_sample_id,
+      na.rm = TRUE
+    ),
+
+    unique_fiber_ids = dplyr::n_distinct(
+      fiber_id,
+      na.rm = TRUE
+    ),
+
+    unique_minispin_runs = dplyr::n_distinct(
+      minispin_run,
+      na.rm = TRUE
+    ),
+
+    complete_records = sum(
+      sample_key_complete,
+      na.rm = TRUE
+    )
+  )
+
+sample_key_validation
+```
+
+```{r stop-if-sample-key-invalid}
+if (nrow(sample_key) != 92) {
+  stop(
+    "The master sample key does not contain 92 rows."
+  )
+}
+
+if (
+  anyDuplicated(sample_key$field_sample_id) > 0 ||
+  anyDuplicated(sample_key$fiber_id) > 0 ||
+  anyDuplicated(sample_key$minispin_run) > 0
+) {
+  stop(
+    "Duplicate identifiers were detected in the master sample key."
+  )
+}
+
+if (!all(sample_key$sample_key_complete)) {
+  stop(
+    "One or more sample-key records are incomplete."
+  )
+}
+```
+
+# 3. Import the AFIS average worksheet
+
+```{r import-afis-average}
+afis_raw <- readxl::read_excel(
+  afis_file,
+  sheet = "Afis Avg"
+) |>
+  janitor::clean_names()
+
+dplyr::glimpse(afis_raw)
+```
+
+## AFIS column inventory
+
+```{r afis-column-inventory}
+afis_column_inventory <- tibble::tibble(
+  column_number = seq_along(
+    names(afis_raw)
+  ),
+
+  column_name = names(
+    afis_raw
+  ),
+
+  data_class = purrr::map_chr(
+    afis_raw,
+    ~ class(.x)[1]
+  ),
+
+  missing_values = purrr::map_int(
+    afis_raw,
+    ~ sum(is.na(.x))
+  )
+)
+
+afis_column_inventory
+```
+
+# 4. Locate AFIS identifier columns
+
+```{r column-detection-helper}
+find_column <- function(
+  data,
+  candidates,
+  required = TRUE,
+  description = "required"
+) {
+
+  detected <- candidates[
+    candidates %in% names(data)
+  ][1]
+
+  if (
+    length(detected) == 0 ||
+    is.na(detected)
+  ) {
+
+    if (required) {
+      stop(
+        "\nCould not locate the ",
+        description,
+        " column.\n\nCandidate names:\n",
+        paste(
+          candidates,
+          collapse = ", "
+        ),
+        "\n\nAvailable columns:\n",
+        paste(
+          names(data),
+          collapse = ", "
+        )
+      )
+    }
+
+    return(
+      NA_character_
+    )
+  }
+
+  detected
+}
+```
+
+```{r locate-afis-identifiers}
+afis_sample_col <- find_column(
+  afis_raw,
+  candidates = c(
+    "sample",
+    "sample_id",
+    "fiber_id",
+    "fiberid",
+    "id"
+  ),
+  description = "AFIS Fiber ID"
+)
+
+afis_run_col <- find_column(
+  afis_raw,
+  candidates = c(
+    "run_number",
+    "run",
+    "minispin_run",
+    "process_id"
+  ),
+  required = FALSE,
+  description = "MiniSpin run"
+)
+
+afis_stage_col <- find_column(
+  afis_raw,
+  candidates = c(
+    "processing_stage",
+    "stage",
+    "process_stage",
+    "processing"
+  ),
+  required = FALSE,
+  description = "processing stage"
+)
+
+afis_identifier_map <- tibble::tibble(
+  analysis_variable = c(
+    "AFIS Fiber ID",
+    "MiniSpin run",
+    "Processing stage"
+  ),
+
+  source_column = c(
+    afis_sample_col,
+    afis_run_col,
+    afis_stage_col
+  )
+)
+
+afis_identifier_map
+```
+
+# 5. Reconstruct base Fiber ID and processing stage
+
+The AFIS sample suffixes represent the four processing stages:
+
+| AFIS suffix | Processing stage |
+|---|---|
+| none | Bale |
+| A | Opened |
+| B | Carded |
+| C3 | Sliver |
+
+```{r create-afis-identifiers}
+afis_identifiers <- tibble::tibble(
+
+  afis_row_id = seq_len(
+    nrow(afis_raw)
+  ),
+
+  afis_fiber_id_original = clean_identifier(
+    as.character(
+      afis_raw[[afis_sample_col]]
+    )
+  ),
+
+  minispin_run = if (!is.na(afis_run_col)) {
+
+    clean_identifier(
+      as.character(
+        afis_raw[[afis_run_col]]
+      )
+    )
+
+  } else {
+
+    NA_character_
+
+  },
+
+  processing_stage_original = if (!is.na(afis_stage_col)) {
+
+    as.character(
+      afis_raw[[afis_stage_col]]
+    )
+
+  } else {
+
+    NA_character_
+
+  }
+
+) |>
+  dplyr::mutate(
+
+    afis_suffix = dplyr::case_when(
+
+      stringr::str_detect(
+        afis_fiber_id_original,
+        stringr::regex(
+          "C3$",
+          ignore_case = TRUE
+        )
+      ) ~ "C3",
+
+      stringr::str_detect(
+        afis_fiber_id_original,
+        stringr::regex(
+          "A$",
+          ignore_case = TRUE
+        )
+      ) ~ "A",
+
+      stringr::str_detect(
+        afis_fiber_id_original,
+        stringr::regex(
+          "B$",
+          ignore_case = TRUE
+        )
+      ) ~ "B",
+
+      TRUE ~ "None"
+    ),
+
+    # Remove the stage suffix to recover the base Fiber ID.
+    # C3 must be removed before single-letter suffixes.
+    fiber_id = afis_fiber_id_original |>
+      stringr::str_remove(
+        stringr::regex(
+          "C3$",
+          ignore_case = TRUE
+        )
+      ) |>
+      stringr::str_remove(
+        stringr::regex(
+          "[AB]$",
+          ignore_case = TRUE
+        )
+      ) |>
+      as.character() |>
+      clean_identifier(),
+
+    stage_from_suffix = dplyr::case_when(
+      afis_suffix == "None" ~ "Bale",
+      afis_suffix == "A" ~ "Opened",
+      afis_suffix == "B" ~ "Carded",
+      afis_suffix == "C3" ~ "Sliver",
+      TRUE ~ NA_character_
+    ),
+
+    stage_from_column = if (!is.na(afis_stage_col)) {
+
+      standardize_stage(
+        processing_stage_original
+      )
+
+    } else {
+
+      NA_character_
+
+    },
+
+    processing_stage = dplyr::coalesce(
+      stage_from_column,
+      stage_from_suffix
+    ),
+
+    stage_agreement = dplyr::case_when(
+      is.na(stage_from_column) ~ NA,
+      stage_from_column == stage_from_suffix ~ TRUE,
+      TRUE ~ FALSE
+    ),
+
+    processing_stage = factor(
+      processing_stage,
+      levels = c(
+        "Bale",
+        "Opened",
+        "Carded",
+        "Sliver"
+      ),
+      ordered = TRUE
+    )
+  )
+
+dplyr::glimpse(
+  afis_identifiers
+)
+
+tibble::tibble(
+  variable = c(
+    "fiber_id",
+    "minispin_run"
+  ),
+  class = c(
+    class(afis_identifiers$fiber_id)[1],
+    class(afis_identifiers$minispin_run)[1]
+  )
+)
+```
+
+# 6. Audit stage reconstruction
+
+```{r audit-afis-stage-reconstruction}
+stage_reconstruction_audit <- afis_identifiers |>
+  dplyr::count(
+    afis_suffix,
+    stage_from_suffix,
+    processing_stage,
+    stage_agreement,
+    name = "n_records"
+  ) |>
+  dplyr::arrange(
+    processing_stage
+  )
+
+stage_reconstruction_audit
+```
+
+Expected counts are approximately:
+
+| Stage | Expected records |
+|---|---:|
+| Bale | 92 |
+| Opened | 92 |
+| Carded | 92 |
+| Sliver | 92 |
+
+```{r stage-count-check}
+afis_stage_counts <- afis_identifiers |>
+  dplyr::count(
+    processing_stage,
+    name = "n_records"
+  )
+
+afis_stage_counts
+```
+
+# 7. Identify AFIS trait columns
+
+All identifier and descriptive columns are excluded before trait data are
+converted to long format.
+
+```{r identify-trait-columns}
+identifier_columns <- unique(
+  stats::na.omit(
+    c(
+      afis_sample_col,
+      afis_run_col,
+      afis_stage_col
+    )
+  )
+)
+
+candidate_trait_columns <- setdiff(
+  names(afis_raw),
+  identifier_columns
+)
+
+trait_column_classes <- tibble::tibble(
+  original_column = candidate_trait_columns,
+
+  data_class = purrr::map_chr(
+    afis_raw[
+      candidate_trait_columns
+    ],
+    ~ class(.x)[1]
+  ),
+
+  nonmissing_values = purrr::map_int(
+    afis_raw[
+      candidate_trait_columns
+    ],
+    ~ sum(!is.na(.x))
+  ),
+
+  unique_values = purrr::map_int(
+    afis_raw[
+      candidate_trait_columns
+    ],
+    ~ dplyr::n_distinct(
+      .x,
+      na.rm = TRUE
+    )
+  )
+)
+
+trait_column_classes
+```
+
+# 8. Create a cleaned AFIS trait-name dictionary
+
+```{r create-trait-dictionary}
+trait_dictionary <- tibble::tibble(
+  original_trait = candidate_trait_columns
+) |>
+  dplyr::mutate(
+
+    clean_trait = janitor::make_clean_names(
+      original_trait
+    ),
+
+    trait_label = dplyr::case_when(
+
+      clean_trait == "nep_size_um" ~ "Nep_size",
+
+      clean_trait == "neps_per_gm" ~ "Nep_count",
+
+      clean_trait == "l_w_in" ~ "L_w",
+
+      clean_trait == "l_w_cv_percent" ~ "L_w_CV",
+
+      clean_trait == "uql_w_in" ~ "UQL_w",
+
+      clean_trait == "sfc_w_percent" ~ "SFC_w",
+
+      clean_trait == "l_n_in" ~ "L_n",
+
+      clean_trait == "l_n_cv_percent" ~ "L_n_CV",
+
+      clean_trait == "sfc_n_percent" ~ "SFC_n",
+
+      clean_trait == "l5_percent_n_in" ~ "L5_n",
+
+      clean_trait == "total_cnt_g" ~ "Total_count",
+
+      clean_trait == "trash_size_um" ~ "Trash_size",
+
+      clean_trait == "dust_cnt_g" ~ "Dust_count",
+
+      clean_trait == "trash_cnt_g" ~ "Trash_count",
+
+      clean_trait == "vfm_percent" ~ "VFM",
+
+      clean_trait == "scn_size_um" ~ "SCN_size",
+
+      clean_trait == "scn_cnt_g" ~ "SCN_count",
+
+      clean_trait == "fine_m_tex" ~ "Fineness",
+
+      clean_trait == "ifc_percent" ~ "IFC",
+
+      clean_trait == "mat_ratio" ~ "Maturity_ratio",
+
+      TRUE ~ clean_trait
+    )
+  )
+
+trait_dictionary
+```
+
+The automatically assigned labels should be reviewed before modeling. The
+original trait name is retained in every processed dataset.
+
+# 9. Convert AFIS trait values to numeric form
+
+Some Excel columns may be imported as character because of symbols or
+embedded text. This step safely parses the trait values.
+
+```{r create-afis-trait-long}
+# Confirm that the trait dictionary exists and has the required columns.
+required_dictionary_columns <- c(
+  "original_trait",
+  "clean_trait",
+  "trait_label"
+)
+
+missing_dictionary_columns <- setdiff(
+  required_dictionary_columns,
+  names(trait_dictionary)
+)
+
+if (length(missing_dictionary_columns) > 0) {
+  stop(
+    "The trait dictionary is missing these columns: ",
+    paste(
+      missing_dictionary_columns,
+      collapse = ", "
+    ),
+    ". Rerun Section 8 before continuing."
+  )
+}
+
+afis_trait_long <- afis_raw |>
+  dplyr::mutate(
+    afis_row_id = dplyr::row_number()
+  ) |>
+  dplyr::select(
+    afis_row_id,
+    dplyr::all_of(candidate_trait_columns)
+  ) |>
+  tidyr::pivot_longer(
+    cols = -afis_row_id,
+    names_to = "original_trait",
+    values_to = "raw_value",
+    values_transform = list(
+      raw_value = as.character
+    )
+  ) |>
+  dplyr::left_join(
+    trait_dictionary |>
+      dplyr::select(
+        original_trait,
+        clean_trait,
+        trait_label
+      ),
+    by = "original_trait"
+  ) |>
+  dplyr::mutate(
+    value = readr::parse_number(
+      raw_value,
+      na = c(
+        "",
+        "NA",
+        "N/A",
+        ".",
+        "-",
+        "--"
+      )
+    )
+  )
+
+# Stop if the dictionary failed to match any AFIS trait names.
+unmatched_trait_names <- afis_trait_long |>
+  dplyr::filter(
+    is.na(clean_trait)
+  ) |>
+  dplyr::distinct(
+    original_trait
+  )
+
+if (nrow(unmatched_trait_names) > 0) {
+  print(unmatched_trait_names)
+
+  stop(
+    "Some AFIS traits did not match the trait dictionary."
+  )
+}
+
+dplyr::glimpse(
+  afis_trait_long
+)
+
+afis_trait_long |>
+  dplyr::distinct(
+    original_trait,
+    clean_trait,
+    trait_label
+  ) |>
+  dplyr::arrange(
+    original_trait
+  )
+```
+
+# 10. Combine identifiers and trait values
+
+```{r combine-afis-identifiers-and-traits}
+afis_long_unmatched <- afis_trait_long |>
+  dplyr::left_join(
+    afis_identifiers,
+    by = "afis_row_id"
+  )
+```
+
+# 11. Join the validated sample key
+
+```{r join-sample-key}
+sample_key_variables <- sample_key |>
+  dplyr::select(
+    field_sample_id,
+    genotype_original,
+    genotype,
+    background,
+    nil_set,
+    qtl_status,
+    material_type,
+    micro_id,
+    plot,
+    plot_prefix,
+    field_rep_inferred,
+    fiber_id,
+    minispin_run,
+    hvi_length_for_ratch,
+    ratch
+  )
+```
+
+```{r perform-sample-key-join}
+afis_long <- afis_long_unmatched |>
+  dplyr::left_join(
+    sample_key_variables,
+    by = c(
+      "fiber_id",
+      "minispin_run"
+    )
+  ) |>
+  dplyr::mutate(
+
+    afis_record_matched =
+      !is.na(field_sample_id),
+
+    field_rep = field_rep_inferred,
+
+    qtl_status = factor(
+      qtl_status,
+      levels = c(
+        "Negative",
+        "Positive",
+        "Parent_Check"
+      )
+    ),
+
+    processing_stage = factor(
+      processing_stage,
+      levels = c(
+        "Bale",
+        "Opened",
+        "Carded",
+        "Sliver"
+      ),
+      ordered = TRUE
+    )
+  ) |>
+  dplyr::select(
+    field_sample_id,
+    genotype_original,
+    genotype,
+    background,
+    nil_set,
+    qtl_status,
+    material_type,
+    field_rep,
+    plot,
+    micro_id,
+    fiber_id,
+    minispin_run,
+    processing_stage,
+    afis_fiber_id_original,
+    afis_suffix,
+    original_trait,
+    clean_trait,
+    trait_label,
+    raw_value,
+    value,
+    hvi_length_for_ratch,
+    ratch,
+    stage_agreement,
+    afis_record_matched
+  ) |>
+  dplyr::arrange(
+    field_sample_id,
+    processing_stage,
+    trait_label
+  )
+
+dplyr::glimpse(
+  afis_long
+)
+```
+
+# 12. Audit sample-key matches
+
+```{r sample-key-match-audit}
+afis_match_audit <- afis_long |>
+  dplyr::distinct(
+    afis_fiber_id_original,
+    fiber_id,
+    minispin_run,
+    processing_stage,
+    field_sample_id,
+    afis_record_matched
+  ) |>
+  dplyr::count(
+    afis_record_matched,
+    name = "n_afis_records"
+  )
+
+afis_match_audit
+```
+
+```{r unmatched-afis-records}
+unmatched_afis_records <- afis_long |>
+  dplyr::filter(
+    !afis_record_matched
+  ) |>
+  dplyr::distinct(
+    afis_fiber_id_original,
+    fiber_id,
+    minispin_run,
+    processing_stage
+  )
+
+unmatched_afis_records
+```
+
+The expected number of unmatched AFIS sample-stage records is zero.
+
+# 13. Check duplicate sample-stage-trait records
+
+```{r duplicate-sample-stage-trait-check}
+duplicate_sample_stage_traits <- afis_long |>
+  dplyr::count(
+    field_sample_id,
+    processing_stage,
+    original_trait,
+    name = "n_records"
+  ) |>
+  dplyr::filter(
+    n_records > 1
+  )
+
+duplicate_sample_stage_traits
+```
+
+# 14. Trait-level missingness audit
+
+```{r trait-missingness-audit}
+trait_missingness <- afis_long |>
+  dplyr::group_by(
+    original_trait,
+    clean_trait,
+    trait_label
+  ) |>
+  dplyr::summarise(
+
+    total_records = dplyr::n(),
+
+    nonmissing_records = sum(
+      !is.na(value)
+    ),
+
+    missing_records = sum(
+      is.na(value)
+    ),
+
+    missing_percent =
+      100 * missing_records / total_records,
+
+    minimum = if (
+      all(is.na(value))
+    ) {
+      NA_real_
+    } else {
+      min(
+        value,
+        na.rm = TRUE
+      )
+    },
+
+    maximum = if (
+      all(is.na(value))
+    ) {
+      NA_real_
+    } else {
+      max(
+        value,
+        na.rm = TRUE
+      )
+    },
+
+    mean = if (
+      all(is.na(value))
+    ) {
+      NA_real_
+    } else {
+      mean(
+        value,
+        na.rm = TRUE
+      )
+    },
+
+    .groups = "drop"
+  ) |>
+  dplyr::arrange(
+    dplyr::desc(
+      missing_percent
+    ),
+    trait_label
+  )
+
+trait_missingness
+```
+
+# 15. Sample-stage completeness audit
+
+```{r sample-stage-completeness}
+sample_stage_completeness <- afis_long |>
+  dplyr::distinct(
+    field_sample_id,
+    fiber_id,
+    minispin_run,
+    processing_stage
+  ) |>
+  dplyr::count(
+    field_sample_id,
+    fiber_id,
+    minispin_run,
+    name = "n_processing_stages"
+  ) |>
+  dplyr::mutate(
+    all_four_stages =
+      n_processing_stages == 4
+  )
+
+sample_stage_completeness |>
+  dplyr::count(
+    n_processing_stages,
+    all_four_stages
+  )
+```
+
+# 16. Create the sample-stage wide dataset
+
+This dataset retains one row per field sample and processing stage, with one
+column per AFIS trait.
+
+```{r create-sample-stage-wide-data}
+afis_sample_stage_wide <- afis_long |>
+  dplyr::select(
+    field_sample_id,
+    genotype,
+    background,
+    nil_set,
+    qtl_status,
+    material_type,
+    field_rep,
+    plot,
+    micro_id,
+    fiber_id,
+    minispin_run,
+    processing_stage,
+    original_trait,
+    value
+  ) |>
+  tidyr::pivot_wider(
+    names_from = original_trait,
+    values_from = value
+  ) |>
+  dplyr::arrange(
+    field_sample_id,
+    processing_stage
+  )
+
+dplyr::glimpse(
+  afis_sample_stage_wide
+)
+```
+
+Expected dimensions are approximately:
+
+```text
+368 rows = 92 samples × 4 processing stages
+```
+
+# 17. Create the fully wide stage-by-trait dataset
+
+This dataset contains one row per field sample. Each AFIS trait is separated
+by processing stage.
+
+```{r create-fully-wide-data}
+afis_wide <- afis_long |>
+  dplyr::select(
+    field_sample_id,
+    genotype,
+    background,
+    nil_set,
+    qtl_status,
+    material_type,
+    field_rep,
+    plot,
+    micro_id,
+    fiber_id,
+    minispin_run,
+    processing_stage,
+    clean_trait,
+    value
+  ) |>
+  tidyr::pivot_wider(
+    names_from = c(
+      processing_stage,
+      clean_trait
+    ),
+    values_from = value,
+    names_glue = "{processing_stage}_{clean_trait}"
+  ) |>
+  dplyr::arrange(
+    field_sample_id
+  )
+
+dplyr::glimpse(
+  afis_wide
+)
+```
+
+# 18. Create a primary-trait subset
+
+The automatic trait labels must be inspected before final analysis. This
+subset retains traits provisionally identified as biologically important.
+
+```{r create-primary-trait-subset}
+primary_trait_labels <- c(
+  "L_n",
+  "L_n_CV",
+  "L_w",
+  "L_w_CV",
+  "UQL_w",
+  "L5_n",
+  "SFC_n",
+  "SFC_w",
+  "Fineness",
+  "Maturity_ratio",
+  "IFC",
+  "Nep_count",
+  "Nep_size"
+)
+
+afis_primary_long <- afis_long |>
+  dplyr::filter(
+    trait_label %in%
+      primary_trait_labels
+  )
+
+afis_primary_long |>
+  dplyr::count(
+    trait_label,
+    original_trait,
+    sort = TRUE
+  )
+```
+
+# 19. Create final cleaning audit
+
+```{r create-final-audit}
+afis_cleaning_audit <- tibble::tibble(
+
+  check = c(
+    "Raw AFIS rows",
+    "Expected raw AFIS rows",
+    "Unique base Fiber IDs",
+    "Unique MiniSpin runs",
+    "Unique field samples matched",
+    "Bale records",
+    "Opened records",
+    "Carded records",
+    "Sliver records",
+    "Samples with all four stages",
+    "Unmatched sample-stage records",
+    "Duplicate sample-stage-trait records",
+    "Long-format rows",
+    "Sample-stage wide rows",
+    "Fully wide rows"
+  ),
+
+  observed = c(
+    nrow(afis_raw),
+    368,
+
+    dplyr::n_distinct(
+      afis_identifiers$fiber_id,
+      na.rm = TRUE
+    ),
+
+    dplyr::n_distinct(
+      afis_identifiers$minispin_run,
+      na.rm = TRUE
+    ),
+
+    dplyr::n_distinct(
+      afis_long$field_sample_id,
+      na.rm = TRUE
+    ),
+
+    sum(
+      afis_identifiers$processing_stage ==
+        "Bale",
+      na.rm = TRUE
+    ),
+
+    sum(
+      afis_identifiers$processing_stage ==
+        "Opened",
+      na.rm = TRUE
+    ),
+
+    sum(
+      afis_identifiers$processing_stage ==
+        "Carded",
+      na.rm = TRUE
+    ),
+
+    sum(
+      afis_identifiers$processing_stage ==
+        "Sliver",
+      na.rm = TRUE
+    ),
+
+    sum(
+      sample_stage_completeness$all_four_stages
+    ),
+
+    nrow(
+      unmatched_afis_records
+    ),
+
+    nrow(
+      duplicate_sample_stage_traits
+    ),
+
+    nrow(
+      afis_long
+    ),
+
+    nrow(
+      afis_sample_stage_wide
+    ),
+
+    nrow(
+      afis_wide
+    )
+  ),
+
+  expected = c(
+    368,
+    368,
+    92,
+    92,
+    92,
+    92,
+    92,
+    92,
+    92,
+    92,
+    0,
+    0,
+    NA,
+    368,
+    92
+  )
+) |>
+  dplyr::mutate(
+
+    status = dplyr::case_when(
+      is.na(expected) ~ "INFORMATION",
+      observed == expected ~ "PASS",
+      TRUE ~ "REVIEW"
+    )
+  )
+
+afis_cleaning_audit
+```
+
+# 20. Save processed AFIS datasets
+
+```{r save-processed-data}
+readr::write_csv(
+  afis_long,
+  file.path(
+    paths$data_processed,
+    "afis_2022_clean_long.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  afis_primary_long,
+  file.path(
+    paths$data_processed,
+    "afis_2022_primary_traits_long.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  afis_sample_stage_wide,
+  file.path(
+    paths$data_processed,
+    "afis_2022_sample_stage_wide.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  afis_wide,
+  file.path(
+    paths$data_processed,
+    "afis_2022_clean_wide.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  trait_dictionary,
+  file.path(
+    paths$data_processed,
+    "afis_2022_trait_dictionary.csv"
+  ),
+  na = ""
+)
+```
+
+# 21. Save audit outputs
+
+```{r save-audit-outputs}
+readr::write_csv(
+  afis_cleaning_audit,
+  file.path(
+    paths$audit,
+    "afis_2022_cleaning_audit.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  afis_column_inventory,
+  file.path(
+    paths$audit,
+    "afis_2022_column_inventory.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  afis_identifier_map,
+  file.path(
+    paths$audit,
+    "afis_2022_identifier_column_map.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  stage_reconstruction_audit,
+  file.path(
+    paths$audit,
+    "afis_2022_stage_reconstruction_audit.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  trait_missingness,
+  file.path(
+    paths$audit,
+    "afis_2022_trait_missingness.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  unmatched_afis_records,
+  file.path(
+    paths$audit,
+    "afis_2022_unmatched_records.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  duplicate_sample_stage_traits,
+  file.path(
+    paths$audit,
+    "afis_2022_duplicate_sample_stage_traits.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  sample_stage_completeness,
+  file.path(
+    paths$audit,
+    "afis_2022_sample_stage_completeness.csv"
+  ),
+  na = ""
+)
+```
+
+# 22. Final status
+
+```{r final-status}
+message(
+  "\nAFIS data cleaning completed."
+)
+
+message(
+  "\nRaw AFIS rows: ",
+  nrow(afis_raw)
+)
+
+message(
+  "\nMatched field samples: ",
+  dplyr::n_distinct(
+    afis_long$field_sample_id,
+    na.rm = TRUE
+  ),
+  " of 92"
+)
+
+message(
+  "\nSamples with all four stages: ",
+  sum(
+    sample_stage_completeness$all_four_stages
+  ),
+  " of 92"
+)
+
+message(
+  "\nUnmatched AFIS sample-stage records: ",
+  nrow(
+    unmatched_afis_records
+  )
+)
+
+message(
+  "\nDuplicate sample-stage-trait records: ",
+  nrow(
+    duplicate_sample_stage_traits
+  )
+)
+
+message(
+  "\nClean long-format data saved to:\n",
+  file.path(
+    paths$data_processed,
+    "afis_2022_clean_long.csv"
+  )
+)
+
+message(
+  "\nClean wide-format data saved to:\n",
+  file.path(
+    paths$data_processed,
+    "afis_2022_clean_wide.csv"
+  )
+)
+```
+
+# 23. Session information
+
+```{r session-information}
+sessionInfo()
+```

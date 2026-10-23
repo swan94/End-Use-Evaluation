@@ -1,0 +1,2003 @@
+---
+title: "Advisor Meeting Figures - qFL-Chr.25 End-Use Evaluation"
+author: "Samantha Wan"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    code_folding: show
+    df_print: paged
+
+knit: >
+  (function(input_file, encoding) {
+
+    project_root <- normalizePath(
+      "C:/Users/sjw23099/Desktop/End-Use Evaluation",
+      winslash = "/",
+      mustWork = TRUE
+    )
+
+    output_folder <- file.path(
+      project_root,
+      "05_results",
+      "advisor_meeting_2026-09-21"
+    )
+
+    dir.create(
+      output_folder,
+      recursive = TRUE,
+      showWarnings = FALSE
+    )
+
+    rmarkdown::render(
+      input = input_file,
+      encoding = encoding,
+      output_dir = output_folder,
+      output_file = "Advisor_Meeting_Figures_2026-09-21_v3.html",
+      knit_root_dir = project_root
+    )
+  })
+---
+
+# Purpose
+
+This notebook creates the advisor-meeting figures for the qFL-Chr.25
+end-use evaluation manuscript.
+
+This version incorporates the requested revisions:
+
+- **Figure 1.2** added: QTL-positive vs QTL-negative trajectories across processing stages.
+- **Figure 2** updated to explicitly report the FDR context.
+- **Figure 3** updated to directly identify the NIIL pair within each background.
+- **Figure 4** updated to use a **single overall regression line** per panel.
+- **Figure 5** updated to use a biologically ordered yarn-trait axis.
+- **Figure 6** updated with clearer interpretive notes for desirable negative differences.
+
+All meeting figures are stored in:
+
+`05_results/advisor_meeting_2026-09-21/figures`
+
+Supporting figure tables are stored in:
+
+`05_results/advisor_meeting_2026-09-21/tables`
+
+```{r setup, include=FALSE}
+project_root <- normalizePath(
+  "C:/Users/sjw23099/Desktop/End-Use Evaluation",
+  winslash = "/",
+  mustWork = TRUE
+)
+
+knitr::opts_knit$set(
+  root.dir = project_root
+)
+
+source(
+  file.path(
+    project_root,
+    "04_code",
+    "00_setup.R"
+  ),
+  local = knitr::knit_global()
+)
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = TRUE,
+  message = TRUE,
+  error = FALSE,
+  fig.width = 10,
+  fig.height = 7
+)
+
+options(
+  contrasts = c(
+    "contr.sum",
+    "contr.poly"
+  )
+)
+```
+
+# 1. Packages
+
+```{r packages}
+required_packages <- c(
+  "dplyr",
+  "tidyr",
+  "purrr",
+  "readr",
+  "readxl",
+  "stringr",
+  "tibble",
+  "ggplot2",
+  "lme4",
+  "lmerTest",
+  "emmeans",
+  "broom.mixed",
+  "scales"
+)
+
+missing_packages <- required_packages[
+  !vapply(
+    required_packages,
+    requireNamespace,
+    logical(1),
+    quietly = TRUE
+  )
+]
+
+if (length(missing_packages) > 0) {
+  stop(
+    "Install these packages before knitting:\n",
+    paste(
+      missing_packages,
+      collapse = ", "
+    )
+  )
+}
+```
+
+# 2. Output folders
+
+```{r folders}
+meeting_root <- file.path(
+  project_root,
+  "05_results",
+  "advisor_meeting_2026-09-21"
+)
+
+meeting_figure_dir <- file.path(
+  meeting_root,
+  "figures"
+)
+
+meeting_table_dir <- file.path(
+  meeting_root,
+  "tables"
+)
+
+dir.create(
+  meeting_figure_dir,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+dir.create(
+  meeting_table_dir,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+message(
+  "Meeting figures will be saved to:\n",
+  meeting_figure_dir
+)
+```
+
+# 3. Figure-saving helper
+
+```{r save-helper}
+save_meeting_figure <- function(
+  plot_object,
+  file_stub,
+  width = 10,
+  height = 7
+) {
+
+  png_file <- file.path(
+    meeting_figure_dir,
+    paste0(
+      file_stub,
+      ".png"
+    )
+  )
+
+  pdf_file <- file.path(
+    meeting_figure_dir,
+    paste0(
+      file_stub,
+      ".pdf"
+    )
+  )
+
+  ggplot2::ggsave(
+    filename = png_file,
+    plot = plot_object,
+    width = width,
+    height = height,
+    dpi = 400,
+    bg = "white"
+  )
+
+  ggplot2::ggsave(
+    filename = pdf_file,
+    plot = plot_object,
+    width = width,
+    height = height,
+    device = grDevices::cairo_pdf
+  )
+
+  message(
+    "Saved: ",
+    basename(png_file),
+    " and ",
+    basename(pdf_file)
+  )
+}
+```
+
+# 4. Helper utilities
+
+```{r helper-utilities}
+first_existing_file <- function(
+  directory,
+  patterns
+) {
+
+  for (pattern in patterns) {
+    hits <- list.files(
+      directory,
+      pattern = pattern,
+      full.names = TRUE,
+      ignore.case = TRUE
+    )
+
+    if (length(hits) > 0) {
+      return(hits[[1]])
+    }
+  }
+
+  return(NA_character_)
+}
+
+find_matching_column <- function(
+  data_names,
+  patterns
+) {
+
+  hits <- unique(
+    unlist(
+      purrr::map(
+        patterns,
+        ~ data_names[
+          stringr::str_detect(
+            data_names,
+            stringr::regex(
+              .x,
+              ignore_case = TRUE
+            )
+          )
+        ]
+      )
+    )
+  )
+
+  if (length(hits) == 0) {
+    return(NA_character_)
+  }
+
+  hits[[1]]
+}
+
+clean_identifier <- function(x) {
+  x |>
+    as.character() |>
+    stringr::str_trim() |>
+    stringr::str_replace_all("[^A-Za-z0-9]", "") |>
+    dplyr::na_if("")
+}
+```
+
+# 5. Import cleaned yarn data
+
+```{r import-yarn}
+yarn_file <- file.path(
+  paths$data_processed,
+  "yarn_2022_sample_level_clean.csv"
+)
+
+if (!file.exists(yarn_file)) {
+  stop(
+    "Missing cleaned yarn file:\n",
+    yarn_file
+  )
+}
+
+yarn <- readr::read_csv(
+  yarn_file,
+  show_col_types = FALSE
+) |>
+  dplyr::mutate(
+    background = factor(
+      background,
+      levels = c(
+        "Acala",
+        "Deltapine",
+        "Georgia",
+        "Paymaster"
+      )
+    ),
+    qtl_status = factor(
+      qtl_status,
+      levels = c(
+        "Negative",
+        "Positive",
+        "Parent_Check"
+      )
+    ),
+    field_rep = factor(
+      field_rep_inferred
+    ),
+    pair_id = interaction(
+      background,
+      nil_set,
+      drop = TRUE
+    )
+  )
+
+formal_yarn <- yarn |>
+  dplyr::filter(
+    material_type == "NIIL",
+    qtl_status %in% c(
+      "Negative",
+      "Positive"
+    )
+  ) |>
+  droplevels()
+
+if (nrow(formal_yarn) != 64) {
+  stop(
+    "Expected 64 formal NIIL observations; found ",
+    nrow(formal_yarn),
+    "."
+  )
+}
+```
+
+# 6. Import matched 2022 fiber data
+
+```{r import-fiber}
+raw_matches <- list.files(
+  paths$data_raw,
+  pattern = "^2022 UGA Mini-Spin Raw Data.*\\.xlsx$",
+  full.names = TRUE,
+  ignore.case = TRUE
+)
+
+if (length(raw_matches) != 1) {
+  stop(
+    "Expected exactly one 2022 UGA Mini-Spin Raw Data workbook in 02_data_raw."
+  )
+}
+
+raw_file <- raw_matches[[1]]
+
+raw_sheets <- readxl::excel_sheets(
+  raw_file
+)
+
+sheet_dimensions <- purrr::map_dfr(
+  raw_sheets,
+  function(sheet_name) {
+
+    temp <- tryCatch(
+      readxl::read_excel(
+        raw_file,
+        sheet = sheet_name,
+        n_max = 100,
+        .name_repair = "unique_quiet"
+      ),
+      error = function(e) {
+        NULL
+      }
+    )
+
+    if (is.null(temp)) {
+      return(
+        tibble::tibble(
+          sheet = sheet_name,
+          rows_read = NA_integer_,
+          columns = NA_integer_
+        )
+      )
+    }
+
+    tibble::tibble(
+      sheet = sheet_name,
+      rows_read = nrow(temp),
+      columns = ncol(temp)
+    )
+  }
+)
+
+candidate_sheets <- sheet_dimensions |>
+  dplyr::filter(
+    rows_read >= 90,
+    columns >= 114
+  )
+
+if (nrow(candidate_sheets) != 1) {
+  stop(
+    "Could not uniquely identify the 2022 114-column analysis sheet."
+  )
+}
+
+analysis_sheet <- candidate_sheets$sheet[[1]]
+
+raw_unfiltered <- readxl::read_excel(
+  raw_file,
+  sheet = analysis_sheet,
+  .name_repair = "unique_quiet"
+)
+
+genotype_check <- stringr::str_trim(
+  as.character(
+    raw_unfiltered[[1]]
+  )
+)
+
+rep_check <- suppressWarnings(
+  as.integer(
+    raw_unfiltered[[2]]
+  )
+)
+
+keep_row <- (
+  !is.na(genotype_check) &
+  genotype_check != "" &
+  !is.na(rep_check)
+)
+
+raw_2022 <- raw_unfiltered[
+  keep_row,
+  ,
+  drop = FALSE
+]
+
+if (nrow(raw_2022) != 92) {
+  stop(
+    "Expected 92 biological rows after filtering; found ",
+    nrow(raw_2022),
+    "."
+  )
+}
+
+standardize_raw_genotype <- function(x) {
+
+  x <- as.character(x)
+  x <- stringr::str_replace(
+    x,
+    "_01$",
+    ""
+  )
+  x <- stringr::str_replace_all(
+    x,
+    "[^A-Za-z0-9]",
+    ""
+  )
+
+  dplyr::case_when(
+    x == "GA2018001" ~ "GA201800",
+    x == "GA2018081" ~ "GA201808",
+    TRUE ~ x
+  )
+}
+
+fiber <- tibble::tibble(
+  genotype = standardize_raw_genotype(
+    raw_2022[[1]]
+  ),
+  field_rep_inferred = suppressWarnings(
+    as.integer(
+      raw_2022[[2]]
+    )
+  ),
+
+  hvi_microgin_UHML =
+    as.numeric(
+      raw_2022[[38]]
+    ),
+
+  afis_microgin_Lw =
+    as.numeric(
+      raw_2022[[45]]
+    ),
+
+  afis_microgin_UQLw =
+    as.numeric(
+      raw_2022[[47]]
+    ),
+
+  afis_microgin_Ln =
+    as.numeric(
+      raw_2022[[49]]
+    ),
+
+  afis_microgin_SFCn =
+    as.numeric(
+      raw_2022[[51]]
+    ),
+
+  afis_microgin_L5 =
+    as.numeric(
+      raw_2022[[52]]
+    ),
+
+  fibrogram_microgin_UHMLf =
+    as.numeric(
+      raw_2022[[64]]
+    ),
+
+  fibrogram_microgin_UQLf =
+    as.numeric(
+      raw_2022[[66]]
+    ),
+
+  fibrogram_microgin_SFCf =
+    as.numeric(
+      raw_2022[[69]]
+    ),
+
+  hvi_classing_UHML =
+    as.numeric(
+      raw_2022[[72]]
+    )
+)
+
+fiber_yarn <- yarn |>
+  dplyr::left_join(
+    fiber,
+    by = c(
+      "genotype",
+      "field_rep_inferred"
+    )
+  )
+
+if (
+  nrow(fiber_yarn) != 92 ||
+  any(
+    is.na(
+      fiber_yarn$hvi_microgin_UHML
+    )
+  )
+) {
+  stop(
+    "The 2022 matched fiber-yarn join is incomplete."
+  )
+}
+
+formal_fiber_yarn <- fiber_yarn |>
+  dplyr::filter(
+    material_type == "NIIL",
+    qtl_status %in% c(
+      "Negative",
+      "Positive"
+    )
+  ) |>
+  droplevels()
+```
+
+# 7. Define consistent fiber panels
+
+```{r define-fiber-panels}
+upper_tail_traits <- c(
+  "hvi_microgin_UHML",
+  "afis_microgin_UQLw",
+  "afis_microgin_L5",
+  "fibrogram_microgin_UHMLf",
+  "fibrogram_microgin_UQLf",
+  "hvi_classing_UHML"
+)
+
+supporting_distribution_traits <- c(
+  "afis_microgin_Lw",
+  "afis_microgin_Ln",
+  "afis_microgin_SFCn",
+  "fibrogram_microgin_SFCf"
+)
+
+core_fiber_traits <- c(
+  upper_tail_traits,
+  supporting_distribution_traits
+)
+
+core_fiber_labels <- c(
+  hvi_microgin_UHML = "Microgin HVI UHML",
+  afis_microgin_UQLw = "Microgin AFIS UQL(w)",
+  afis_microgin_L5 = "Microgin AFIS L5",
+  fibrogram_microgin_UHMLf = "Microgin fibrogram UHML",
+  fibrogram_microgin_UQLf = "Microgin fibrogram UQL",
+  hvi_classing_UHML = "Classing HVI UHML",
+  afis_microgin_Lw = "Microgin AFIS L(w)",
+  afis_microgin_Ln = "Microgin AFIS L(n)",
+  afis_microgin_SFCn = "Microgin AFIS SFC(n)",
+  fibrogram_microgin_SFCf = "Microgin fibrogram SFC"
+)
+```
+
+# 8. Import stage-wide AFIS data for Figures 1 and 1.2
+
+```{r stage-data}
+afis_candidates <- list.files(
+  paths$data_processed,
+  pattern = "afis.*2022.*\\.csv$|2022.*afis.*\\.csv$",
+  full.names = TRUE,
+  ignore.case = TRUE
+)
+
+required_stage_patterns <- c(
+  "Bale",
+  "Opened",
+  "Carded",
+  "Sliver"
+)
+
+stage_file <- NA_character_
+stage_data <- NULL
+
+for (candidate in afis_candidates) {
+
+  candidate_data <- tryCatch(
+    readr::read_csv(
+      candidate,
+      show_col_types = FALSE
+    ),
+    error = function(e) {
+      NULL
+    }
+  )
+
+  if (is.null(candidate_data)) {
+    next
+  }
+
+  candidate_names <- names(
+    candidate_data
+  )
+
+  has_all_stages <- all(
+    vapply(
+      required_stage_patterns,
+      function(stage_name) {
+        any(
+          stringr::str_detect(
+            candidate_names,
+            stringr::regex(
+              stage_name,
+              ignore_case = TRUE
+            )
+          )
+        )
+      },
+      logical(1)
+    )
+  )
+
+  if (has_all_stages) {
+    stage_file <- candidate
+    stage_data <- candidate_data
+    break
+  }
+}
+
+if (is.null(stage_data)) {
+  warning(
+    "No processed 2022 AFIS wide file with Bale, Opened, Carded, and Sliver columns was found. ",
+    "Figures 1 and 1.2 will be skipped."
+  )
+}
+```
+
+```{r stage-metadata}
+figure_1 <- NULL
+figure_1_2 <- NULL
+
+if (!is.null(stage_data)) {
+
+  sample_key_file <- first_existing_file(
+    paths$data_processed,
+    c(
+      "^sample_key_2022.*\\.csv$"
+    )
+  )
+
+  if (
+    !("qtl_status" %in% names(stage_data)) &&
+    !is.na(sample_key_file)
+  ) {
+
+    sample_key <- readr::read_csv(
+      sample_key_file,
+      show_col_types = FALSE
+    )
+
+    stage_id_col <- find_matching_column(
+      names(stage_data),
+      c(
+        "^field_sample_id$",
+        "field.*sample.*id",
+        "^sample_id$"
+      )
+    )
+
+    key_id_col <- find_matching_column(
+      names(sample_key),
+      c(
+        "^field_sample_id$",
+        "field.*sample.*id",
+        "^sample_id$"
+      )
+    )
+
+    stage_genotype_col <- find_matching_column(
+      names(stage_data),
+      c(
+        "^genotype$"
+      )
+    )
+
+    key_genotype_col <- find_matching_column(
+      names(sample_key),
+      c(
+        "^genotype$"
+      )
+    )
+
+    if (
+      !is.na(stage_id_col) &&
+      !is.na(key_id_col)
+    ) {
+
+      stage_data <- stage_data |>
+        dplyr::mutate(
+          .join_id = clean_identifier(
+            .data[[stage_id_col]]
+          )
+        ) |>
+        dplyr::left_join(
+          sample_key |>
+            dplyr::mutate(
+              .join_id = clean_identifier(
+                .data[[key_id_col]]
+              )
+            ) |>
+            dplyr::select(
+              .join_id,
+              dplyr::any_of(
+                c(
+                  "background",
+                  "nil_set",
+                  "qtl_status",
+                  "material_type",
+                  "field_rep_inferred",
+                  "genotype"
+                )
+              )
+            ),
+          by = ".join_id"
+        )
+
+    } else if (
+      !is.na(stage_genotype_col) &&
+      !is.na(key_genotype_col)
+    ) {
+
+      stage_data <- stage_data |>
+        dplyr::mutate(
+          .join_genotype = clean_identifier(
+            .data[[stage_genotype_col]]
+          )
+        ) |>
+        dplyr::left_join(
+          sample_key |>
+            dplyr::mutate(
+              .join_genotype = clean_identifier(
+                .data[[key_genotype_col]]
+              )
+            ) |>
+            dplyr::select(
+              .join_genotype,
+              dplyr::any_of(
+                c(
+                  "background",
+                  "nil_set",
+                  "qtl_status",
+                  "material_type",
+                  "field_rep_inferred"
+                )
+              )
+            ),
+          by = ".join_genotype"
+        )
+    }
+  }
+}
+```
+
+# 9. Figure 1 — AFIS processing-stage response
+
+```{r figure-1, fig.show='hold'}
+if (!is.null(stage_data)) {
+
+  find_stage_column <- function(
+    data_names,
+    stage_regex,
+    trait_regex
+  ) {
+
+    hits <- data_names[
+      stringr::str_detect(
+        data_names,
+        stringr::regex(
+          stage_regex,
+          ignore_case = TRUE
+        )
+      ) &
+      stringr::str_detect(
+        data_names,
+        stringr::regex(
+          trait_regex,
+          ignore_case = TRUE
+        )
+      )
+    ]
+
+    if (length(hits) == 0) {
+      return(NA_character_)
+    }
+
+    hits[[1]]
+  }
+
+  stage_names <- names(
+    stage_data
+  )
+
+  trait_map <- tibble::tribble(
+    ~trait_label, ~trait_regex,
+    "UQL(w)", "UQL.?w|UQL_w",
+    "L5", "L5",
+    "SFC(n)", "SFC.?n|SFC_n",
+    "Nep count", "Nep.*count|Neps"
+  )
+
+  stage_map <- tibble::tribble(
+    ~processing_stage, ~stage_regex,
+    "Bale", "^Bale|Bale",
+    "Opened", "Opened|Open",
+    "Carded", "Carded|Card",
+    "Sliver", "Sliver"
+  )
+
+  plot_specs <- tidyr::crossing(
+    trait_map,
+    stage_map
+  ) |>
+    dplyr::rowwise() |>
+    dplyr::mutate(
+      column_name = find_stage_column(
+        data_names = stage_names,
+        stage_regex = stage_regex,
+        trait_regex = trait_regex
+      )
+    ) |>
+    dplyr::ungroup() |>
+    dplyr::filter(
+      !is.na(
+        column_name
+      )
+    )
+
+  stage_long <- purrr::pmap_dfr(
+    plot_specs,
+    function(
+      trait_label,
+      trait_regex,
+      processing_stage,
+      stage_regex,
+      column_name
+    ) {
+
+      tibble::tibble(
+        trait = trait_label,
+        processing_stage = processing_stage,
+        value = as.numeric(
+          stage_data[[column_name]]
+        )
+      )
+    }
+  ) |>
+    dplyr::mutate(
+      processing_stage = factor(
+        processing_stage,
+        levels = c(
+          "Bale",
+          "Opened",
+          "Carded",
+          "Sliver"
+        )
+      )
+    )
+
+  stage_summary <- stage_long |>
+    dplyr::group_by(
+      trait,
+      processing_stage
+    ) |>
+    dplyr::summarise(
+      n = sum(
+        !is.na(
+          value
+        )
+      ),
+      mean = mean(
+        value,
+        na.rm = TRUE
+      ),
+      se = stats::sd(
+        value,
+        na.rm = TRUE
+      ) /
+        sqrt(n),
+      .groups = "drop"
+    )
+
+  figure_1 <- ggplot2::ggplot(
+    stage_summary,
+    ggplot2::aes(
+      x = processing_stage,
+      y = mean,
+      group = 1
+    )
+  ) +
+    ggplot2::geom_line() +
+    ggplot2::geom_point(
+      size = 2.5
+    ) +
+    ggplot2::geom_errorbar(
+      ggplot2::aes(
+        ymin = mean - se,
+        ymax = mean + se
+      ),
+      width = 0.10
+    ) +
+    ggplot2::facet_wrap(
+      ~ trait,
+      scales = "free_y",
+      ncol = 2
+    ) +
+    ggplot2::labs(
+      title = "Figure 1. Fiber properties change across MiniSpin processing stages",
+      subtitle = "2022 matched AFIS samples; means ± SE",
+      x = "Processing stage",
+      y = "AFIS trait value"
+    ) +
+    ggplot2::theme_bw(
+      base_size = 12
+    ) +
+    ggplot2::theme(
+      panel.grid.minor = ggplot2::element_blank()
+    )
+
+  print(figure_1)
+
+  save_meeting_figure(
+    figure_1,
+    "Figure_1_AFIS_processing_stage_response",
+    width = 10,
+    height = 7
+  )
+}
+```
+
+# 10. Figure 1.2 — QTL-associated fiber phenotypes persist through processing
+
+```{r figure-1-2}
+if (
+  !is.null(stage_data) &&
+  "qtl_status" %in% names(stage_data)
+) {
+
+  stage_qtl_data <- stage_data
+
+  if ("material_type" %in% names(stage_qtl_data)) {
+    stage_qtl_data <- stage_qtl_data |>
+      dplyr::filter(
+        material_type == "NIIL"
+      )
+  }
+
+  stage_qtl_data <- stage_qtl_data |>
+    dplyr::filter(
+      qtl_status %in% c(
+        "Negative",
+        "Positive"
+      )
+    ) |>
+    dplyr::mutate(
+      qtl_status = factor(
+        qtl_status,
+        levels = c(
+          "Negative",
+          "Positive"
+        )
+      )
+    )
+
+  if (nrow(stage_qtl_data) > 0) {
+
+    qtl_plot_specs <- plot_specs
+
+    stage_qtl_long <- purrr::pmap_dfr(
+      qtl_plot_specs,
+      function(
+        trait_label,
+        trait_regex,
+        processing_stage,
+        stage_regex,
+        column_name
+      ) {
+
+        tibble::tibble(
+          qtl_status = stage_qtl_data$qtl_status,
+          trait = trait_label,
+          processing_stage = processing_stage,
+          value = as.numeric(
+            stage_qtl_data[[column_name]]
+          )
+        )
+      }
+    ) |>
+      dplyr::mutate(
+        processing_stage = factor(
+          processing_stage,
+          levels = c(
+            "Bale",
+            "Opened",
+            "Carded",
+            "Sliver"
+          )
+        )
+      )
+
+    stage_qtl_summary <- stage_qtl_long |>
+      dplyr::group_by(
+        trait,
+        processing_stage,
+        qtl_status
+      ) |>
+      dplyr::summarise(
+        n = sum(
+          !is.na(value)
+        ),
+        mean = mean(
+          value,
+          na.rm = TRUE
+        ),
+        se = stats::sd(
+          value,
+          na.rm = TRUE
+        ) /
+          sqrt(n),
+        .groups = "drop"
+      )
+
+    figure_1_2 <- ggplot2::ggplot(
+      stage_qtl_summary,
+      ggplot2::aes(
+        x = processing_stage,
+        y = mean,
+        group = qtl_status,
+        shape = qtl_status,
+        linetype = qtl_status
+      )
+    ) +
+      ggplot2::geom_line() +
+      ggplot2::geom_point(
+        size = 2.5
+      ) +
+      ggplot2::geom_errorbar(
+        ggplot2::aes(
+          ymin = mean - se,
+          ymax = mean + se
+        ),
+        width = 0.10
+      ) +
+      ggplot2::facet_wrap(
+        ~ trait,
+        scales = "free_y",
+        ncol = 2
+      ) +
+      ggplot2::labs(
+        title = "Figure 1.2. QTL-associated fiber phenotypes persist across processing stages",
+        subtitle = "2022 NIIL AFIS samples; qFL-Chr.25 positive vs negative means ± SE",
+        x = "Processing stage",
+        y = "AFIS trait value",
+        shape = "qFL-Chr.25",
+        linetype = "qFL-Chr.25"
+      ) +
+      ggplot2::theme_bw(
+        base_size = 12
+      ) +
+      ggplot2::theme(
+        panel.grid.minor = ggplot2::element_blank()
+      )
+
+    print(figure_1_2)
+
+    save_meeting_figure(
+      figure_1_2,
+      "Figure_1_2_AFIS_processing_stage_QTL_persistence",
+      width = 10,
+      height = 7.5
+    )
+  }
+
+} else if (!is.null(stage_data)) {
+
+  warning(
+    "Figure 1.2 was skipped because qtl_status could not be resolved in the stage-wide AFIS dataset."
+  )
+}
+```
+
+# 11. Figure 2 — Overall qFL-Chr.25 effects on primary yarn traits
+
+```{r figure-2-data}
+primary_yarn_traits <- c(
+  "skein_mn_tex",
+  "yarn_tenacity_cn_tex",
+  "yarn_elongation_pct",
+  "yarn_evenness_cv_pct",
+  "yarn_thin_50",
+  "yarn_thick_50",
+  "yarn_neps_200",
+  "yarn_hairiness"
+)
+
+trait_labels <- c(
+  skein_mn_tex = "Skein strength",
+  yarn_tenacity_cn_tex = "Single-end tenacity",
+  yarn_elongation_pct = "Yarn elongation",
+  yarn_evenness_cv_pct = "Evenness CV",
+  yarn_thin_50 = "Thin places",
+  yarn_thick_50 = "Thick places",
+  yarn_neps_200 = "Neps +200%",
+  yarn_hairiness = "Hairiness"
+)
+
+fit_qtl_contrast <- function(
+  trait_name
+) {
+
+  model_formula <- stats::as.formula(
+    paste0(
+      trait_name,
+      " ~ background * qtl_status + ",
+      "field_rep + (1 | pair_id)"
+    )
+  )
+
+  fit <- lmerTest::lmer(
+    model_formula,
+    data = formal_yarn,
+    REML = TRUE,
+    control = lme4::lmerControl(
+      optimizer = "bobyqa",
+      optCtrl = list(
+        maxfun = 100000
+      )
+    )
+  )
+
+  emm <- emmeans::emmeans(
+    fit,
+    ~ qtl_status
+  )
+
+  contrast_result <- as.data.frame(
+    emmeans::contrast(
+      emm,
+      method = list(
+        "Positive - Negative" = c(-1, 1)
+      )
+    )
+  )
+
+  estimate <- contrast_result$estimate
+  se <- contrast_result$SE
+
+  tibble::tibble(
+    trait = trait_name,
+    estimate = estimate,
+    se = se,
+    df = contrast_result$df,
+    p_value = contrast_result$p.value,
+    lower = estimate - 1.96 * se,
+    upper = estimate + 1.96 * se,
+    singular = lme4::isSingular(
+      fit,
+      tol = 1e-4
+    )
+  )
+}
+
+overall_qtl_effects <- purrr::map_dfr(
+  primary_yarn_traits,
+  fit_qtl_contrast
+) |>
+  dplyr::mutate(
+    fdr_p = stats::p.adjust(
+      p_value,
+      method = "BH"
+    ),
+    trait_label = unname(
+      trait_labels[
+        trait
+      ]
+    )
+  )
+
+readr::write_csv(
+  overall_qtl_effects,
+  file.path(
+    meeting_table_dir,
+    "Figure_2_overall_yarn_qtl_effects.csv"
+  )
+)
+```
+
+```{r figure-2}
+trait_sd <- formal_yarn |>
+  dplyr::summarise(
+    dplyr::across(
+      dplyr::all_of(
+        primary_yarn_traits
+      ),
+      ~ stats::sd(
+        .x,
+        na.rm = TRUE
+      )
+    )
+  ) |>
+  tidyr::pivot_longer(
+    cols = dplyr::everything(),
+    names_to = "trait",
+    values_to = "trait_sd"
+  )
+
+overall_qtl_effects_plot <- overall_qtl_effects |>
+  dplyr::left_join(
+    trait_sd,
+    by = "trait"
+  ) |>
+  dplyr::mutate(
+    standardized_effect = estimate / trait_sd,
+    standardized_lower = lower / trait_sd,
+    standardized_upper = upper / trait_sd,
+    trait_label = factor(
+      trait_label,
+      levels = rev(
+        unname(
+          trait_labels
+        )
+      )
+    )
+  )
+
+n_fdr_sig <- sum(
+  overall_qtl_effects$fdr_p < 0.05,
+  na.rm = TRUE
+)
+
+figure_2_subtitle <- if (n_fdr_sig == 0) {
+  paste(
+    "QTL-positive minus QTL-negative; standardized effects with approximate 95% CI.",
+    "No overall yarn-trait contrast remained significant after FDR correction."
+  )
+} else {
+  paste0(
+    "QTL-positive minus QTL-negative; standardized effects with approximate 95% CI. ",
+    n_fdr_sig,
+    " trait(s) remained significant after FDR correction."
+  )
+}
+
+figure_2 <- ggplot2::ggplot(
+  overall_qtl_effects_plot,
+  ggplot2::aes(
+    x = standardized_effect,
+    y = trait_label
+  )
+) +
+  ggplot2::geom_vline(
+    xintercept = 0,
+    linetype = 2
+  ) +
+  ggplot2::geom_errorbarh(
+    ggplot2::aes(
+      xmin = standardized_lower,
+      xmax = standardized_upper
+    ),
+    height = 0.16
+  ) +
+  ggplot2::geom_point(
+    size = 3
+  ) +
+  ggplot2::labs(
+    title = "Figure 2. Overall qFL-Chr.25 effects on primary yarn traits",
+    subtitle = figure_2_subtitle,
+    x = "Standardized QTL effect (SD units)",
+    y = NULL,
+    caption = "Raw nominal contrasts are shown; FDR-adjusted inference is summarized in the subtitle."
+  ) +
+  ggplot2::theme_bw(
+    base_size = 12
+  ) +
+  ggplot2::theme(
+    panel.grid.minor = ggplot2::element_blank()
+  )
+
+figure_2
+
+save_meeting_figure(
+  figure_2,
+  "Figure_2_overall_yarn_QTL_effects_updated",
+  width = 10,
+  height = 6.5
+)
+```
+
+# 12. Figure 3 — Pair-specific yarn tenacity with NIIL-pair labels
+
+```{r figure-3}
+pair_tenacity_summary <- formal_yarn |>
+  dplyr::group_by(
+    background,
+    nil_set,
+    qtl_status
+  ) |>
+  dplyr::summarise(
+    n = dplyr::n(),
+    mean_tenacity = mean(
+      yarn_tenacity_cn_tex,
+      na.rm = TRUE
+    ),
+    se_tenacity = stats::sd(
+      yarn_tenacity_cn_tex,
+      na.rm = TRUE
+    ) /
+      sqrt(n),
+    .groups = "drop"
+  )
+
+pair_label_data <- pair_tenacity_summary |>
+  dplyr::filter(
+    qtl_status == "Positive"
+  )
+
+figure_3 <- ggplot2::ggplot(
+  pair_tenacity_summary,
+  ggplot2::aes(
+    x = qtl_status,
+    y = mean_tenacity,
+    group = nil_set,
+    linetype = nil_set
+  )
+) +
+  ggplot2::geom_line() +
+  ggplot2::geom_point(
+    ggplot2::aes(
+      shape = qtl_status
+    ),
+    size = 3
+  ) +
+  ggplot2::geom_errorbar(
+    ggplot2::aes(
+      ymin = mean_tenacity - se_tenacity,
+      ymax = mean_tenacity + se_tenacity
+    ),
+    width = 0.08
+  ) +
+  ggplot2::geom_text(
+    data = pair_label_data,
+    ggplot2::aes(
+      label = nil_set
+    ),
+    inherit.aes = FALSE,
+    x = 2.05,
+    y = pair_label_data$mean_tenacity,
+    hjust = 0,
+    size = 3.5
+  ) +
+  ggplot2::facet_wrap(
+    ~ background,
+    scales = "free_y",
+    nrow = 1
+  ) +
+  ggplot2::coord_cartesian(
+    clip = "off"
+  ) +
+  ggplot2::labs(
+    title = "Figure 3. qFL-Chr.25 effects on yarn tenacity vary among NIIL pairs",
+    subtitle = "2022 single-end tenacity; means ± SE. Pair names are labeled at the qTL-positive endpoint.",
+    x = "qFL-Chr.25 status",
+    y = "Yarn tenacity (cN/tex)",
+    shape = "QTL status"
+  ) +
+  ggplot2::theme_bw(
+    base_size = 12
+  ) +
+  ggplot2::theme(
+    panel.grid.minor = ggplot2::element_blank(),
+    legend.position = "right",
+    legend.title = ggplot2::element_text(size = 12),
+    legend.text = ggplot2::element_text(size = 11),
+    plot.margin = ggplot2::margin(5.5, 45, 5.5, 5.5)
+  ) +
+  ggplot2::guides(
+    linetype = "none"
+  )
+
+figure_3
+
+save_meeting_figure(
+  figure_3,
+  "Figure_3_pair_specific_yarn_tenacity_labeled",
+  width = 13,
+  height = 5.8
+)
+```
+
+# 13. Figure 4 — Fiber-to-yarn tenacity relationships with one overall regression line
+
+```{r figure-4}
+fiber_plot_long <- formal_fiber_yarn |>
+  dplyr::select(
+    background,
+    nil_set,
+    qtl_status,
+    yarn_tenacity_cn_tex,
+    dplyr::all_of(
+      upper_tail_traits
+    )
+  ) |>
+  tidyr::pivot_longer(
+    cols = dplyr::all_of(
+      upper_tail_traits
+    ),
+    names_to = "fiber_trait",
+    values_to = "fiber_value"
+  ) |>
+  dplyr::mutate(
+    fiber_trait = unname(
+      core_fiber_labels[
+        fiber_trait
+      ]
+    )
+  )
+
+fiber_plot_stats <- fiber_plot_long |>
+  dplyr::group_by(
+    fiber_trait
+  ) |>
+  dplyr::summarise(
+    r = stats::cor(
+      fiber_value,
+      yarn_tenacity_cn_tex,
+      use = "complete.obs"
+    ),
+    p_value = stats::cor.test(
+      fiber_value,
+      yarn_tenacity_cn_tex
+    )$p.value,
+    .groups = "drop"
+  ) |>
+  dplyr::mutate(
+    label = paste0(
+      "r = ",
+      sprintf(
+        "%.2f",
+        r
+      ),
+      "\nP = ",
+      format.pval(
+        p_value,
+        digits = 2,
+        eps = 0.001
+      )
+    )
+  )
+
+figure_4 <- ggplot2::ggplot(
+  fiber_plot_long,
+  ggplot2::aes(
+    x = fiber_value,
+    y = yarn_tenacity_cn_tex
+  )
+) +
+  ggplot2::geom_point(
+    ggplot2::aes(
+      shape = qtl_status
+    ),
+    size = 2.4,
+    alpha = 0.85
+  ) +
+  ggplot2::geom_smooth(
+    ggplot2::aes(
+      x = fiber_value,
+      y = yarn_tenacity_cn_tex
+    ),
+    inherit.aes = FALSE,
+    method = "lm",
+    se = TRUE
+  ) +
+  ggplot2::facet_wrap(
+    ~ fiber_trait,
+    scales = "free_x",
+    ncol = 3
+  ) +
+  ggplot2::geom_text(
+    data = fiber_plot_stats,
+    ggplot2::aes(
+      x = -Inf,
+      y = Inf,
+      label = label
+    ),
+    inherit.aes = FALSE,
+    hjust = -0.1,
+    vjust = 1.1,
+    size = 3.4
+  ) +
+  ggplot2::labs(
+    title = "Figure 4. Upper-tail fiber-length traits are consistently associated with yarn tenacity",
+    subtitle = "Matched 2022 NIIL lint lots; points are QTL-positive or QTL-negative, but each panel shows one overall 64-NIIL regression line.",
+    x = "Fiber length",
+    y = "Yarn tenacity (cN/tex)",
+    shape = "qFL-Chr.25"
+  ) +
+  ggplot2::theme_bw(
+    base_size = 12
+  ) +
+  ggplot2::theme(
+    panel.grid.minor = ggplot2::element_blank()
+  )
+
+figure_4
+
+save_meeting_figure(
+  figure_4,
+  "Figure_4_upper_tail_fiber_to_yarn_tenacity_one_line",
+  width = 12,
+  height = 8.8
+)
+```
+
+# 14. Figure 5 — Fiber-to-yarn correlation heatmap with biologically ordered yarn traits
+
+```{r figure-5-data}
+heatmap_yarn_traits <- c(
+  "yarn_tenacity_cn_tex",
+  "skein_mn_tex",
+  "yarn_elongation_pct",
+  "yarn_evenness_cv_pct",
+  "yarn_thin_50",
+  "yarn_thick_50",
+  "yarn_neps_200",
+  "yarn_hairiness"
+)
+
+heatmap_yarn_order <- c(
+  "Single-end tenacity",
+  "Skein strength",
+  "Yarn elongation",
+  "Evenness CV",
+  "Thin places",
+  "Thick places",
+  "Neps +200%",
+  "Hairiness"
+)
+
+heatmap_data <- purrr::map_dfr(
+  heatmap_yarn_traits,
+  function(yarn_trait) {
+
+    purrr::map_dfr(
+      core_fiber_traits,
+      function(fiber_trait) {
+
+        x <- formal_fiber_yarn[[fiber_trait]]
+        y <- formal_fiber_yarn[[yarn_trait]]
+
+        complete <- stats::complete.cases(
+          x,
+          y
+        )
+
+        test <- stats::cor.test(
+          x[complete],
+          y[complete],
+          method = "pearson"
+        )
+
+        tibble::tibble(
+          fiber_trait = fiber_trait,
+          yarn_trait = yarn_trait,
+          n = sum(
+            complete
+          ),
+          r = unname(
+            test$estimate
+          ),
+          p_value = test$p.value
+        )
+      }
+    )
+  }
+) |>
+  dplyr::group_by(
+    yarn_trait
+  ) |>
+  dplyr::mutate(
+    fdr_p = stats::p.adjust(
+      p_value,
+      method = "BH"
+    )
+  ) |>
+  dplyr::ungroup() |>
+  dplyr::mutate(
+    fiber_label = unname(
+      core_fiber_labels[
+        fiber_trait
+      ]
+    ),
+    yarn_label = unname(
+      trait_labels[
+        yarn_trait
+      ]
+    ),
+    significance = dplyr::case_when(
+      fdr_p < 0.001 ~ "***",
+      fdr_p < 0.01 ~ "**",
+      fdr_p < 0.05 ~ "*",
+      TRUE ~ ""
+    )
+  )
+
+readr::write_csv(
+  heatmap_data,
+  file.path(
+    meeting_table_dir,
+    "Figure_5_fiber_yarn_correlations_core_panel.csv"
+  )
+)
+```
+
+```{r figure-5}
+fiber_levels <- rev(
+  unname(
+    core_fiber_labels[
+      core_fiber_traits
+    ]
+  )
+)
+
+heatmap_data <- heatmap_data |>
+  dplyr::mutate(
+    fiber_label = factor(
+      fiber_label,
+      levels = fiber_levels
+    ),
+    yarn_label = factor(
+      yarn_label,
+      levels = heatmap_yarn_order
+    )
+  )
+
+figure_5 <- ggplot2::ggplot(
+  heatmap_data,
+  ggplot2::aes(
+    x = yarn_label,
+    y = fiber_label,
+    fill = r
+  )
+) +
+  ggplot2::geom_tile() +
+  ggplot2::geom_text(
+    ggplot2::aes(
+      label = paste0(
+        sprintf(
+          "%.2f",
+          r
+        ),
+        significance
+      )
+    ),
+    size = 3.0
+  ) +
+  ggplot2::scale_fill_gradient2(
+    midpoint = 0,
+    limits = c(
+      -1,
+      1
+    ),
+    oob = scales::squish
+  ) +
+  ggplot2::labs(
+    title = "Figure 5. Fiber-to-yarn relationships across the consistent core 2022 fiber panel",
+    subtitle = "Pearson r; * FDR < 0.05, ** FDR < 0.01, *** FDR < 0.001 within yarn trait. Yarn traits are ordered from strength-related to appearance-related outcomes.",
+    x = NULL,
+    y = NULL,
+    fill = "r"
+  ) +
+  ggplot2::theme_bw(
+    base_size = 11
+  ) +
+  ggplot2::theme(
+    axis.text.x = ggplot2::element_text(
+      angle = 45,
+      hjust = 1
+    ),
+    panel.grid = ggplot2::element_blank()
+  )
+
+figure_5
+
+save_meeting_figure(
+  figure_5,
+  "Figure_5_fiber_to_yarn_correlation_heatmap_ordered",
+  width = 12,
+  height = 7.6
+)
+```
+
+# 15. Figure 6 — DP213 effect profile with clearer interpretation
+
+```{r figure-6-data}
+dp213_traits <- c(
+  core_fiber_traits,
+  "yarn_tenacity_cn_tex",
+  "skein_mn_tex",
+  "yarn_elongation_pct",
+  "yarn_evenness_cv_pct",
+  "yarn_thin_50",
+  "yarn_neps_200",
+  "yarn_hairiness"
+)
+
+dp213_labels <- c(
+  core_fiber_labels,
+  yarn_tenacity_cn_tex = "Yarn tenacity",
+  skein_mn_tex = "Skein strength",
+  yarn_elongation_pct = "Yarn elongation",
+  yarn_evenness_cv_pct = "Evenness CV",
+  yarn_thin_50 = "Thin places",
+  yarn_neps_200 = "Yarn neps",
+  yarn_hairiness = "Hairiness"
+)
+
+dp213_long <- formal_fiber_yarn |>
+  dplyr::filter(
+    nil_set == "DP213"
+  ) |>
+  dplyr::select(
+    qtl_status,
+    dplyr::all_of(
+      dp213_traits
+    )
+  ) |>
+  tidyr::pivot_longer(
+    cols = dplyr::all_of(
+      dp213_traits
+    ),
+    names_to = "trait",
+    values_to = "value"
+  )
+
+dp213_means <- dp213_long |>
+  dplyr::group_by(
+    trait,
+    qtl_status
+  ) |>
+  dplyr::summarise(
+    mean_value = mean(
+      value,
+      na.rm = TRUE
+    ),
+    .groups = "drop"
+  ) |>
+  tidyr::pivot_wider(
+    names_from = qtl_status,
+    values_from = mean_value
+  ) |>
+  dplyr::mutate(
+    raw_difference = Positive - Negative
+  )
+
+formal_trait_sd <- formal_fiber_yarn |>
+  dplyr::select(
+    dplyr::all_of(
+      dp213_traits
+    )
+  ) |>
+  dplyr::summarise(
+    dplyr::across(
+      dplyr::everything(),
+      ~ stats::sd(
+        .x,
+        na.rm = TRUE
+      )
+    )
+  ) |>
+  tidyr::pivot_longer(
+    cols = dplyr::everything(),
+    names_to = "trait",
+    values_to = "formal_sd"
+  )
+
+dp213_effect_profile <- dp213_means |>
+  dplyr::left_join(
+    formal_trait_sd,
+    by = "trait"
+  ) |>
+  dplyr::mutate(
+    standardized_difference = raw_difference / formal_sd,
+    trait_label = unname(
+      dp213_labels[
+        trait
+      ]
+    ),
+    domain = dplyr::case_when(
+      trait %in% core_fiber_traits ~ "Fiber",
+      TRUE ~ "Yarn"
+    )
+  ) |>
+  dplyr::arrange(
+    dplyr::desc(
+      standardized_difference
+    )
+  ) |>
+  dplyr::mutate(
+    trait_label = factor(
+      trait_label,
+      levels = trait_label
+    )
+  )
+
+readr::write_csv(
+  dp213_effect_profile,
+  file.path(
+    meeting_table_dir,
+    "Figure_6_DP213_standardized_effect_profile_core_panel.csv"
+  )
+)
+```
+
+```{r figure-6}
+figure_6 <- ggplot2::ggplot(
+  dp213_effect_profile,
+  ggplot2::aes(
+    x = standardized_difference,
+    y = trait_label,
+    shape = domain
+  )
+) +
+  ggplot2::geom_vline(
+    xintercept = 0,
+    linetype = 2
+  ) +
+  ggplot2::geom_segment(
+    ggplot2::aes(
+      x = 0,
+      xend = standardized_difference,
+      yend = trait_label
+    )
+  ) +
+  ggplot2::geom_point(
+    size = 3.2
+  ) +
+  ggplot2::labs(
+    title = "Figure 6. DP213 shows a coordinated response across the core fiber panel and yarn traits",
+    subtitle = "QTL-positive minus QTL-negative differences standardized by the 64-NIIL trait SD.",
+    caption = "Interpretation note: negative values indicate improvement for short-fiber content, evenness CV, thin places, neps, and hairiness.",
+    x = "DP213 QTL effect (SD units)",
+    y = NULL,
+    shape = "Trait domain"
+  ) +
+  ggplot2::theme_bw(
+    base_size = 12
+  ) +
+  ggplot2::theme(
+    panel.grid.minor = ggplot2::element_blank()
+  )
+
+figure_6
+
+save_meeting_figure(
+  figure_6,
+  "Figure_6_DP213_fiber_to_yarn_effect_profile_updated",
+  width = 10,
+  height = 8.4
+)
+```
+
+# 16. Figure inventory
+
+```{r meeting-inventory}
+meeting_inventory <- tibble::tibble(
+  figure = c(
+    "Figure 1",
+    "Figure 1.2",
+    "Figure 2",
+    "Figure 3",
+    "Figure 4",
+    "Figure 5",
+    "Figure 6"
+  ),
+  topic = c(
+    "AFIS processing-stage response",
+    "QTL persistence across processing stages",
+    "Overall QTL effects on primary yarn traits",
+    "Pair-specific yarn tenacity with pair labels",
+    "Upper-tail fiber-length predictors of yarn tenacity",
+    "Fiber-to-yarn correlation heatmap using consistent core panel",
+    "DP213 standardized profile using consistent core panel"
+  ),
+  created = c(
+    !is.null(figure_1),
+    !is.null(figure_1_2),
+    TRUE,
+    TRUE,
+    TRUE,
+    TRUE,
+    TRUE
+  )
+)
+
+meeting_inventory
+
+readr::write_csv(
+  meeting_inventory,
+  file.path(
+    meeting_table_dir,
+    "advisor_meeting_figure_inventory_v3.csv"
+  )
+)
+```
+
+# 17. Final status
+
+```{r final-status}
+message(
+  "\nAdvisor-meeting figure generation complete."
+)
+
+message(
+  "\nFigure folder:\n",
+  meeting_figure_dir
+)
+
+message(
+  "\nSupporting tables:\n",
+  meeting_table_dir
+)
+
+message(
+  "\nFiles created:\n",
+  paste(
+    list.files(
+      meeting_figure_dir
+    ),
+    collapse = "\n"
+  )
+)
+```
+
+# 18. Session information
+
+```{r session-info}
+sessionInfo()
+```

@@ -1,0 +1,1805 @@
+---
+title: "2022 Yarn Publication-Comparable Mean Separation"
+author: "Samantha Wan"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    code_folding: show
+    df_print: paged
+
+knit: >
+  (function(input_file, encoding) {
+
+    project_root <- normalizePath(
+      "C:/Users/sjw23099/Desktop/End-Use Evaluation",
+      winslash = "/",
+      mustWork = TRUE
+    )
+
+    output_folder <- file.path(
+      project_root,
+      "05_results",
+      "notebook_outputs"
+    )
+
+    dir.create(
+      output_folder,
+      recursive = TRUE,
+      showWarnings = FALSE
+    )
+
+    rmarkdown::render(
+      input = input_file,
+      encoding = encoding,
+      output_dir = output_folder,
+      output_file = "07_yarn_publication_style_waller_duncan.html",
+      knit_root_dir = project_root
+    )
+  })
+---
+
+# Purpose
+
+This notebook performs a **publication-comparable secondary yarn analysis**
+designed to parallel the genotype mean-separation approach used in the 2025
+qFL-Chr.25 validation publication.
+
+The 2025 publication used genotype ANOVA and Waller-Duncan mean separation
+(`K = 100`) within genetic background. This notebook applies the same general
+mean-separation framework to the 2022 MiniSpin yarn traits.
+
+This analysis is intentionally **secondary** to the primary mixed-model/FDR
+analysis. Its purpose is to answer a more genotype-specific question:
+
+> Within each genetic background, do individual QTL-positive and QTL-negative
+> sister lines differ in yarn performance?
+
+For each background, the publication-style dataset contains:
+
+- the four NIIL genotypes (two QTL-positive / QTL-negative sister-line pairs);
+- the recurrent parent for that background;
+- the donor parent `SL883`.
+
+The two unrelated checks (`GA201800` and `GA201808`) are excluded from these
+background-specific Waller-Duncan analyses.
+
+The same `SL883` observations are used descriptively in each background-specific
+analysis, matching the presentation logic used in the earlier qFL-Chr.25
+validation work. Because each background is analyzed separately, this does not
+pool or duplicate observations within a single model.
+
+The primary manuscript inference should still come from the mixed-model analysis.
+Nominal significance or Waller-Duncan separation found here should be described
+as **supporting genotype-level evidence**, not as a replacement for the
+multiple-testing-controlled primary results.
+
+```{r setup, include=FALSE}
+project_root <- normalizePath(
+  "C:/Users/sjw23099/Desktop/End-Use Evaluation",
+  winslash = "/",
+  mustWork = TRUE
+)
+
+knitr::opts_knit$set(
+  root.dir = project_root
+)
+
+source(
+  file.path(
+    project_root,
+    "04_code",
+    "00_setup.R"
+  ),
+  local = knitr::knit_global()
+)
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = TRUE,
+  message = TRUE,
+  error = FALSE,
+  fig.width = 9,
+  fig.height = 6
+)
+
+options(
+  contrasts = c(
+    "contr.sum",
+    "contr.poly"
+  )
+)
+```
+
+# 1. Check required packages
+
+```{r check-packages}
+required_packages <- c(
+  "dplyr",
+  "tidyr",
+  "purrr",
+  "readr",
+  "tibble",
+  "stringr",
+  "ggplot2",
+  "agricolae",
+  "emmeans",
+  "janitor"
+)
+
+missing_packages <- required_packages[
+  !vapply(
+    required_packages,
+    requireNamespace,
+    logical(1),
+    quietly = TRUE
+  )
+]
+
+if (length(missing_packages) > 0) {
+  stop(
+    "Install the following packages before continuing: ",
+    paste(
+      missing_packages,
+      collapse = ", "
+    )
+  )
+}
+```
+
+# 2. Create output directories
+
+```{r create-output-directories}
+publication_style_root <- file.path(
+  project_root,
+  "05_results",
+  "yarn_publication_style"
+)
+
+publication_style_table_dir <- file.path(
+  publication_style_root,
+  "tables"
+)
+
+publication_style_figure_dir <- file.path(
+  publication_style_root,
+  "figures"
+)
+
+purrr::walk(
+  c(
+    publication_style_root,
+    publication_style_table_dir,
+    publication_style_figure_dir
+  ),
+  dir.create,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+```
+
+# 3. Import cleaned sample-level yarn data
+
+```{r import-yarn-data}
+sample_file <- file.path(
+  paths$data_processed,
+  "yarn_2022_sample_level_clean.csv"
+)
+
+if (!file.exists(sample_file)) {
+  stop(
+    "Could not find cleaned yarn sample-level dataset:\n",
+    sample_file
+  )
+}
+
+yarn_sample <- readr::read_csv(
+  sample_file,
+  show_col_types = FALSE
+)
+
+if (nrow(yarn_sample) != 92) {
+  stop(
+    "Expected 92 sample-level yarn records, but found ",
+    nrow(yarn_sample),
+    "."
+  )
+}
+```
+
+# 4. Prepare identifiers and factors
+
+```{r prepare-identifiers}
+yarn_sample <- yarn_sample |>
+  dplyr::mutate(
+    genotype =
+      as.character(
+        genotype
+      ),
+    background =
+      as.character(
+        background
+      ),
+    nil_set =
+      as.character(
+        nil_set
+      ),
+    qtl_status =
+      as.character(
+        qtl_status
+      ),
+    material_type =
+      as.character(
+        material_type
+      ),
+    field_rep =
+      factor(
+        field_rep_inferred
+      )
+  )
+```
+
+# 5. Define backgrounds and recurrent parents
+
+```{r define-backgrounds}
+background_parent_key <- tibble::tribble(
+  ~background, ~recurrent_parent,
+  "Acala",      "ACSJ4",
+  "Deltapine",  "DP50",
+  "Georgia",    "GA089",
+  "Paymaster",  "PMHS26"
+)
+
+background_parent_key
+```
+
+# 6. Define yarn traits
+
+The principal publication-style analysis is performed for the same eight primary
+yarn outcomes used in the mixed-model analysis.
+
+```{r define-traits}
+primary_yarn_traits <- c(
+  "skein_mn_tex",
+  "yarn_tenacity_cn_tex",
+  "yarn_elongation_pct",
+  "yarn_evenness_cv_pct",
+  "yarn_thin_50",
+  "yarn_thick_50",
+  "yarn_neps_200",
+  "yarn_hairiness"
+)
+
+trait_labels <- c(
+  skein_mn_tex =
+    "Normalized skein strength (mN/tex)",
+  yarn_tenacity_cn_tex =
+    "Single-end tenacity (cN/tex)",
+  yarn_elongation_pct =
+    "Single-end elongation (%)",
+  yarn_evenness_cv_pct =
+    "Yarn evenness CV (%)",
+  yarn_thin_50 =
+    "Thin places (-50%)",
+  yarn_thick_50 =
+    "Thick places (+50%)",
+  yarn_neps_200 =
+    "Neps (+200%)",
+  yarn_hairiness =
+    "Hairiness"
+)
+```
+
+# 7. Build publication-style background datasets
+
+Each background-specific dataset includes the four NIIL genotypes, the matching
+recurrent parent, and `SL883`.
+
+```{r build-background-datasets}
+build_background_dataset <- function(
+  background_name,
+  recurrent_parent_name
+) {
+
+  niil_and_recurrent <- yarn_sample |>
+    dplyr::filter(
+      background == background_name,
+      (
+        material_type == "NIIL" |
+        genotype == recurrent_parent_name
+      )
+    )
+
+  donor <- yarn_sample |>
+    dplyr::filter(
+      genotype == "SL883"
+    )
+
+  dplyr::bind_rows(
+    niil_and_recurrent,
+    donor
+  ) |>
+    dplyr::mutate(
+      analysis_background =
+        background_name,
+      genotype =
+        factor(
+          genotype
+        )
+    ) |>
+    droplevels()
+}
+
+publication_background_data <- purrr::map2(
+  background_parent_key$background,
+  background_parent_key$recurrent_parent,
+  build_background_dataset
+)
+
+names(
+  publication_background_data
+) <- background_parent_key$background
+```
+
+# 8. Audit background datasets
+
+Expected structure is approximately six genotypes per background:
+
+- four NIIL genotypes;
+- one recurrent parent;
+- SL883.
+
+```{r audit-background-datasets}
+background_dataset_audit <- purrr::imap_dfr(
+  publication_background_data,
+  function(data, background_name) {
+
+    tibble::tibble(
+      background =
+        background_name,
+      rows =
+        nrow(data),
+      unique_genotypes =
+        dplyr::n_distinct(
+          data$genotype
+        ),
+      unique_field_samples =
+        dplyr::n_distinct(
+          data$field_sample_id
+        ),
+      niil_rows =
+        sum(
+          data$material_type == "NIIL",
+          na.rm = TRUE
+        ),
+      recurrent_parent_rows =
+        sum(
+          data$material_type == "Recurrent parent",
+          na.rm = TRUE
+        ),
+      donor_rows =
+        sum(
+          as.character(
+            data$genotype
+          ) == "SL883",
+          na.rm = TRUE
+        )
+    )
+  }
+)
+
+background_dataset_audit
+```
+
+# 9. Genotype sample-count audit
+
+```{r genotype-count-audit}
+genotype_count_audit <- purrr::imap_dfr(
+  publication_background_data,
+  function(data, background_name) {
+
+    data |>
+      dplyr::count(
+        genotype,
+        name = "n"
+      ) |>
+      dplyr::mutate(
+        background =
+          background_name,
+        .before = 1
+      )
+  }
+)
+
+genotype_count_audit
+```
+
+# 10. Fit background-specific genotype ANOVA
+
+The publication-comparable model is:
+
+`trait ~ genotype + field_rep`
+
+This treats genotype as the treatment factor and field replication as the block.
+
+```{r anova-function}
+fit_background_anova <- function(
+  data,
+  trait,
+  background_name
+) {
+
+  model_data <- data |>
+    dplyr::filter(
+      !is.na(
+        .data[[trait]]
+      )
+    ) |>
+    droplevels()
+
+  formula_object <- stats::as.formula(
+    paste0(
+      trait,
+      " ~ genotype + field_rep"
+    )
+  )
+
+  fit <- tryCatch(
+    stats::aov(
+      formula_object,
+      data = model_data
+    ),
+    error = function(e) {
+      e
+    }
+  )
+
+  list(
+    background =
+      background_name,
+    trait =
+      trait,
+    n =
+      nrow(
+        model_data
+      ),
+    data =
+      model_data,
+    model =
+      fit
+  )
+}
+```
+
+# 11. Fit all background × trait ANOVAs
+
+```{r fit-all-anovas}
+publication_anova_results <- list()
+
+for (
+  background_name in names(
+    publication_background_data
+  )
+) {
+
+  background_data <-
+    publication_background_data[[background_name]]
+
+  for (
+    trait_name in primary_yarn_traits
+  ) {
+
+    result <- fit_background_anova(
+      data =
+        background_data,
+      trait =
+        trait_name,
+      background_name =
+        background_name
+    )
+
+    key <- paste(
+      background_name,
+      trait_name,
+      sep = "__"
+    )
+
+    publication_anova_results[[key]] <- result
+  }
+}
+```
+
+# 12. ANOVA model status
+
+```{r anova-model-status}
+publication_anova_status <- purrr::map_dfr(
+  publication_anova_results,
+  function(result) {
+
+    if (
+      is.null(result$trait) ||
+      is.null(result$background) ||
+      is.null(result$model)
+    ) {
+      stop(
+        "Malformed ANOVA result object detected. ",
+        "Each list element must contain background, trait, n, data, and model."
+      )
+    }
+
+    if (
+      inherits(
+        result$model,
+        "error"
+      )
+    ) {
+      return(
+        tibble::tibble(
+          background =
+            result$background,
+          trait =
+            result$trait,
+          n =
+            result$n,
+          fitted =
+            FALSE,
+          message =
+            conditionMessage(
+              result$model
+            )
+        )
+      )
+    }
+
+    tibble::tibble(
+      background =
+        result$background,
+      trait =
+        result$trait,
+      n =
+        result$n,
+      fitted =
+        TRUE,
+      message =
+        NA_character_
+    )
+  }
+) |>
+  dplyr::mutate(
+    trait_label =
+      unname(
+        trait_labels[
+          trait
+        ]
+      )
+  )
+
+publication_anova_status
+```
+
+# 13. Extract genotype ANOVA tests
+
+```{r extract-genotype-anova}
+extract_anova_table <- function(
+  result
+) {
+
+  if (
+    inherits(
+      result$model,
+      "error"
+    )
+  ) {
+    return(
+      tibble::tibble()
+    )
+  }
+
+  anova_table <- summary(
+    result$model
+  )[[1]]
+
+  out <- as.data.frame(
+    anova_table
+  ) |>
+    tibble::rownames_to_column(
+      "effect"
+    ) |>
+    janitor::clean_names()
+
+  tibble::tibble(
+    background =
+      result$background,
+    trait =
+      result$trait,
+    effect =
+      out$effect,
+    df =
+      out$df,
+    sum_sq =
+      out$sum_sq,
+    mean_sq =
+      out$mean_sq,
+    f_value =
+      out$f_value,
+    p_value =
+      out$pr_f
+  )
+}
+
+publication_anova_tables <- purrr::map_dfr(
+  publication_anova_results,
+  extract_anova_table
+) |>
+  dplyr::mutate(
+    trait_label =
+      unname(
+        trait_labels[
+          trait
+        ]
+      )
+  )
+
+genotype_anova_tests <- publication_anova_tables |>
+  dplyr::filter(
+    stringr::str_trim(
+      effect
+    ) == "genotype"
+  ) |>
+  dplyr::arrange(
+    background,
+    p_value
+  )
+
+genotype_anova_tests
+```
+
+# 14. Waller-Duncan mean separation
+
+This uses `agricolae::waller.test()` with `K = 100`, matching the reported
+Waller-Duncan setting from the earlier publication.
+
+```{r waller-duncan-function}
+run_waller_duncan <- function(
+  result
+) {
+
+  if (
+    inherits(
+      result$model,
+      "error"
+    )
+  ) {
+    return(
+      list(
+        means =
+          tibble::tibble(),
+        groups =
+          tibble::tibble()
+      )
+    )
+  }
+
+  wd <- tryCatch(
+    agricolae::waller.test(
+      result$model,
+      "genotype",
+      K = 100,
+      group = TRUE,
+      console = FALSE
+    ),
+    error = function(e) {
+      e
+    }
+  )
+
+  if (
+    inherits(
+      wd,
+      "error"
+    )
+  ) {
+    return(
+      list(
+        means =
+          tibble::tibble(
+            background =
+              result$background,
+            trait =
+              result$trait,
+            error =
+              conditionMessage(
+                wd
+              )
+          ),
+        groups =
+          tibble::tibble()
+      )
+    )
+  }
+
+  means_table <- if (
+    !is.null(
+      wd$means
+    )
+  ) {
+    as.data.frame(
+      wd$means
+    ) |>
+      tibble::rownames_to_column(
+        "genotype"
+      ) |>
+      janitor::clean_names() |>
+      tibble::as_tibble() |>
+      dplyr::mutate(
+        background =
+          result$background,
+        trait =
+          result$trait,
+        .before = 1
+      )
+  } else {
+    tibble::tibble()
+  }
+
+  groups_table <- if (
+    !is.null(
+      wd$groups
+    )
+  ) {
+    as.data.frame(
+      wd$groups
+    ) |>
+      tibble::rownames_to_column(
+        "genotype"
+      ) |>
+      janitor::clean_names() |>
+      tibble::as_tibble() |>
+      dplyr::mutate(
+        background =
+          result$background,
+        trait =
+          result$trait,
+        .before = 1
+      )
+  } else {
+    tibble::tibble()
+  }
+
+  list(
+    means =
+      means_table,
+    groups =
+      groups_table
+  )
+}
+```
+
+# 15. Run all Waller-Duncan tests
+
+```{r run-all-waller-tests}
+publication_waller_results <- purrr::map(
+  publication_anova_results,
+  run_waller_duncan
+)
+
+waller_means <- purrr::map_dfr(
+  publication_waller_results,
+  "means"
+)
+
+waller_groups <- purrr::map_dfr(
+  publication_waller_results,
+  "groups"
+)
+
+if (
+  nrow(
+    waller_means
+  ) > 0
+) {
+  waller_means <- waller_means |>
+    dplyr::mutate(
+      trait_label =
+        unname(
+          trait_labels[
+            trait
+          ]
+        )
+    )
+}
+
+if (
+  nrow(
+    waller_groups
+  ) > 0
+) {
+  waller_groups <- waller_groups |>
+    dplyr::mutate(
+      trait_label =
+        unname(
+          trait_labels[
+            trait
+          ]
+        )
+    )
+}
+
+waller_groups
+```
+
+# 16. Direct NIIL sister-line contrasts
+
+Waller-Duncan grouping letters are useful for publication-style presentation, but
+the biological question is specifically whether QTL-positive and QTL-negative
+members of the same NIIL set differ.
+
+Therefore, this section performs **pre-specified sister-line contrasts** within
+each background using the same ANOVA model. These p-values are intentionally
+reported as nominal, unadjusted values to parallel the genotype-level
+mean-separation analysis.
+
+They should not replace the FDR-controlled primary mixed-model inference.
+
+```{r sister-line-contrast-function}
+extract_sister_line_contrasts <- function(
+  result
+) {
+
+  if (
+    inherits(
+      result$model,
+      "error"
+    )
+  ) {
+    return(
+      tibble::tibble()
+    )
+  }
+
+  model_data <- result$data
+
+  niil_key <- model_data |>
+    dplyr::filter(
+      material_type == "NIIL",
+      qtl_status %in% c(
+        "Negative",
+        "Positive"
+      ),
+      !is.na(
+        nil_set
+      )
+    ) |>
+    dplyr::distinct(
+      nil_set,
+      qtl_status,
+      genotype
+    )
+
+  available_pairs <- niil_key |>
+    dplyr::count(
+      nil_set,
+      name = "n_status"
+    ) |>
+    dplyr::filter(
+      n_status == 2
+    ) |>
+    dplyr::pull(
+      nil_set
+    )
+
+  if (
+    length(
+      available_pairs
+    ) == 0
+  ) {
+    return(
+      tibble::tibble()
+    )
+  }
+
+  em <- emmeans::emmeans(
+    result$model,
+    ~ genotype
+  )
+
+  em_levels <- as.character(
+    em@grid$genotype
+  )
+
+  contrast_list <- list()
+
+  contrast_metadata <- list()
+
+  for (
+    pair_name in available_pairs
+  ) {
+
+    pair_key <- niil_key |>
+      dplyr::filter(
+        nil_set == pair_name
+      )
+
+    neg_name <- pair_key |>
+      dplyr::filter(
+        qtl_status == "Negative"
+      ) |>
+      dplyr::pull(
+        genotype
+      )
+
+    pos_name <- pair_key |>
+      dplyr::filter(
+        qtl_status == "Positive"
+      ) |>
+      dplyr::pull(
+        genotype
+      )
+
+    if (
+      length(
+        neg_name
+      ) != 1 ||
+      length(
+        pos_name
+      ) != 1
+    ) {
+      next
+    }
+
+    contrast_vector <- rep(
+      0,
+      length(
+        em_levels
+      )
+    )
+
+    contrast_vector[
+      match(
+        neg_name,
+        em_levels
+      )
+    ] <- -1
+
+    contrast_vector[
+      match(
+        pos_name,
+        em_levels
+      )
+    ] <- 1
+
+    contrast_name <- paste0(
+      pair_name,
+      ": ",
+      pos_name,
+      " - ",
+      neg_name
+    )
+
+    contrast_list[[contrast_name]] <- contrast_vector
+
+    contrast_metadata[[contrast_name]] <- tibble::tibble(
+      nil_set =
+        pair_name,
+      negative_genotype =
+        neg_name,
+      positive_genotype =
+        pos_name
+    )
+  }
+
+  if (
+    length(
+      contrast_list
+    ) == 0
+  ) {
+    return(
+      tibble::tibble()
+    )
+  }
+
+  contrast_result <- emmeans::contrast(
+    em,
+    method =
+      contrast_list,
+    adjust =
+      "none"
+  ) |>
+    as.data.frame() |>
+    janitor::clean_names() |>
+    tibble::as_tibble()
+
+  metadata_table <- dplyr::bind_rows(
+    contrast_metadata,
+    .id =
+      "contrast"
+  )
+
+  contrast_result |>
+    dplyr::left_join(
+      metadata_table,
+      by =
+        "contrast"
+    ) |>
+    dplyr::mutate(
+      background =
+        result$background,
+      trait =
+        result$trait,
+      .before = 1
+    )
+}
+```
+
+# 17. Run sister-line contrasts
+
+```{r run-sister-line-contrasts}
+sister_line_contrasts <- purrr::map_dfr(
+  publication_anova_results,
+  extract_sister_line_contrasts
+) |>
+  dplyr::mutate(
+    trait_label =
+      unname(
+        trait_labels[
+          trait
+        ]
+      ),
+    nominal_significance =
+      dplyr::case_when(
+        p_value < 0.001 ~ "***",
+        p_value < 0.01 ~ "**",
+        p_value < 0.05 ~ "*",
+        TRUE ~ "NS"
+      )
+  ) |>
+  dplyr::arrange(
+    trait,
+    background,
+    nil_set
+  )
+
+sister_line_contrasts
+```
+
+# 18. Optional FDR column for transparency
+
+The publication-comparable interpretation uses nominal pairwise p-values, but an
+FDR column is retained so that the distinction between nominal and
+multiple-testing-controlled evidence is explicit.
+
+```{r sister-line-fdr}
+sister_line_contrasts <- sister_line_contrasts |>
+  dplyr::group_by(
+    trait
+  ) |>
+  dplyr::mutate(
+    fdr_within_trait =
+      stats::p.adjust(
+        p_value,
+        method = "BH"
+      )
+  ) |>
+  dplyr::ungroup()
+
+sister_line_contrasts
+```
+
+# 19. Summarize significant sister-line differences
+
+```{r summarize-sister-line-significance}
+sister_line_significance_summary <- sister_line_contrasts |>
+  dplyr::group_by(
+    trait,
+    trait_label
+  ) |>
+  dplyr::summarise(
+    pair_tests =
+      dplyr::n(),
+    nominal_p_lt_0_05 =
+      sum(
+        p_value < 0.05,
+        na.rm = TRUE
+      ),
+    fdr_lt_0_05 =
+      sum(
+        fdr_within_trait < 0.05,
+        na.rm = TRUE
+      ),
+    positive_direction =
+      sum(
+        estimate > 0,
+        na.rm = TRUE
+      ),
+    negative_direction =
+      sum(
+        estimate < 0,
+        na.rm = TRUE
+      ),
+    .groups = "drop"
+  )
+
+sister_line_significance_summary
+```
+
+# 20. Genotype means and standard errors
+
+```{r genotype-means}
+publication_genotype_means <- purrr::imap_dfr(
+  publication_background_data,
+  function(data, background_name) {
+
+    data |>
+      dplyr::select(
+        genotype,
+        field_rep,
+        dplyr::all_of(
+          primary_yarn_traits
+        )
+      ) |>
+      tidyr::pivot_longer(
+        cols =
+          dplyr::all_of(
+            primary_yarn_traits
+          ),
+        names_to =
+          "trait",
+        values_to =
+          "value"
+      ) |>
+      dplyr::group_by(
+        genotype,
+        trait
+      ) |>
+      dplyr::summarise(
+        n =
+          sum(
+            !is.na(
+              value
+            )
+          ),
+        mean =
+          mean(
+            value,
+            na.rm = TRUE
+          ),
+        sd =
+          stats::sd(
+            value,
+            na.rm = TRUE
+          ),
+        se =
+          sd /
+          sqrt(
+            n
+          ),
+        .groups =
+          "drop"
+      ) |>
+      dplyr::mutate(
+        background =
+          background_name,
+        trait_label =
+          unname(
+            trait_labels[
+              trait
+            ]
+          ),
+        .before = 1
+      )
+  }
+)
+
+publication_genotype_means
+```
+
+# 21. Pairwise QTL difference table
+
+This table is designed to be particularly useful for manuscript interpretation.
+
+```{r pairwise-qtl-difference-table}
+pairwise_qtl_difference_table <- sister_line_contrasts |>
+  dplyr::select(
+    trait,
+    trait_label,
+    background,
+    nil_set,
+    negative_genotype,
+    positive_genotype,
+    estimate,
+    se,
+    df,
+    t_ratio,
+    p_value,
+    nominal_significance,
+    fdr_within_trait
+  ) |>
+  dplyr::arrange(
+    trait,
+    background,
+    nil_set
+  )
+
+pairwise_qtl_difference_table
+```
+
+# 22. Publication-style plots for each yarn trait
+
+The plots show genotype means ± SE within background. Waller-Duncan letters are
+added when the `agricolae` output can be matched cleanly to the genotype means.
+
+```{r prepare-waller-labels}
+waller_plot_labels <- tibble::tibble()
+
+if (
+  nrow(
+    waller_groups
+  ) > 0 &&
+  all(
+    c(
+      "background",
+      "trait",
+      "genotype",
+      "groups"
+    ) %in%
+      names(
+        waller_groups
+      )
+  )
+) {
+
+  waller_plot_labels <- waller_groups |>
+    dplyr::select(
+      background,
+      trait,
+      genotype,
+      groups
+    ) |>
+    dplyr::mutate(
+      genotype =
+        as.character(
+          genotype
+        )
+    )
+}
+```
+
+```{r save-publication-style-plots}
+for (
+  trait_name in primary_yarn_traits
+) {
+
+  plot_data <- publication_genotype_means |>
+    dplyr::filter(
+      trait == trait_name
+    ) |>
+    dplyr::mutate(
+      genotype =
+        as.character(
+          genotype
+        )
+    )
+
+  if (
+    nrow(
+      waller_plot_labels
+    ) > 0
+  ) {
+
+    plot_data <- plot_data |>
+      dplyr::left_join(
+        waller_plot_labels |>
+          dplyr::filter(
+            trait == trait_name
+          ),
+        by = c(
+          "background",
+          "trait",
+          "genotype"
+        )
+      )
+
+  } else {
+
+    plot_data <- plot_data |>
+      dplyr::mutate(
+        groups =
+          NA_character_
+      )
+  }
+
+  plot_data <- plot_data |>
+    dplyr::group_by(
+      background
+    ) |>
+    dplyr::mutate(
+      label_offset =
+        0.06 *
+        diff(
+          range(
+            c(
+              mean - se,
+              mean + se
+            ),
+            na.rm = TRUE
+          )
+        ),
+      label_offset =
+        dplyr::if_else(
+          is.finite(
+            label_offset
+          ) &
+          label_offset > 0,
+          label_offset,
+          0.05 *
+            abs(
+              mean(
+                mean,
+                na.rm = TRUE
+              )
+            )
+        ),
+      label_y =
+        mean +
+        se +
+        label_offset
+    ) |>
+    dplyr::ungroup()
+
+  p <- ggplot2::ggplot(
+    plot_data,
+    ggplot2::aes(
+      x =
+        genotype,
+      y =
+        mean
+    )
+  ) +
+    ggplot2::geom_point(
+      size = 2.5
+    ) +
+    ggplot2::geom_errorbar(
+      ggplot2::aes(
+        ymin =
+          mean - se,
+        ymax =
+          mean + se
+      ),
+      width = 0.15
+    ) +
+    ggplot2::geom_text(
+      ggplot2::aes(
+        y =
+          label_y,
+        label =
+          groups
+      ),
+      na.rm = TRUE,
+      size = 3.5
+    ) +
+    ggplot2::facet_wrap(
+      ~ background,
+      scales = "free_x",
+      nrow = 2
+    ) +
+    ggplot2::labs(
+      title =
+        trait_labels[
+          trait_name
+        ],
+      subtitle =
+        "Means ± SE; Waller-Duncan groups (K = 100)",
+      x =
+        "Genotype",
+      y =
+        trait_labels[
+          trait_name
+        ]
+    ) +
+    ggplot2::theme_bw() +
+    ggplot2::theme(
+      axis.text.x =
+        ggplot2::element_text(
+          angle = 45,
+          hjust = 1
+        )
+    )
+
+  ggplot2::ggsave(
+    filename =
+      file.path(
+        publication_style_figure_dir,
+        paste0(
+          trait_name,
+          "_waller_duncan_by_background.png"
+        )
+      ),
+    plot =
+      p,
+    width =
+      11,
+    height =
+      8,
+    dpi =
+      300
+  )
+}
+```
+
+# 23. Focused sister-pair plots
+
+These plots display only the 16 NIIL genotypes and annotate the pre-specified
+QTL-positive versus QTL-negative sister-line comparison.
+
+```{r save-sister-pair-plots}
+for (
+  trait_name in primary_yarn_traits
+) {
+
+  mean_data <- publication_genotype_means |>
+    dplyr::filter(
+      trait == trait_name,
+      genotype %in%
+        yarn_sample$genotype[
+          yarn_sample$material_type ==
+            "NIIL"
+        ]
+    ) |>
+    dplyr::left_join(
+      yarn_sample |>
+        dplyr::filter(
+          material_type == "NIIL"
+        ) |>
+        dplyr::distinct(
+          genotype,
+          nil_set,
+          qtl_status
+        ),
+      by =
+        "genotype"
+    )
+
+  significance_data <- sister_line_contrasts |>
+    dplyr::filter(
+      trait == trait_name
+    ) |>
+    dplyr::select(
+      background,
+      nil_set,
+      nominal_significance
+    )
+
+  subtitle_text <- paste0(
+    "Pre-specified sister-line contrasts; ",
+    "nominal p-values shown separately in output table"
+  )
+
+  p <- ggplot2::ggplot(
+    mean_data,
+    ggplot2::aes(
+      x =
+        qtl_status,
+      y =
+        mean,
+      group =
+        nil_set,
+      linetype =
+        nil_set,
+      shape =
+        qtl_status
+    )
+  ) +
+    ggplot2::geom_line() +
+    ggplot2::geom_point(
+      size = 2.7
+    ) +
+    ggplot2::geom_errorbar(
+      ggplot2::aes(
+        ymin =
+          mean - se,
+        ymax =
+          mean + se
+      ),
+      width = 0.08
+    ) +
+    ggplot2::facet_wrap(
+      ~ background,
+      nrow = 2
+    ) +
+    ggplot2::labs(
+      title =
+        trait_labels[
+          trait_name
+        ],
+      subtitle =
+        subtitle_text,
+      x =
+        "qFL-Chr.25 status",
+      y =
+        trait_labels[
+          trait_name
+        ],
+      linetype =
+        "NIIL set",
+      shape =
+        "QTL status"
+    ) +
+    ggplot2::theme_bw() +
+    ggplot2::theme(
+      legend.position =
+        "top"
+    )
+
+  ggplot2::ggsave(
+    filename =
+      file.path(
+        publication_style_figure_dir,
+        paste0(
+          trait_name,
+          "_sister_line_pairs.png"
+        )
+      ),
+    plot =
+      p,
+    width =
+      9,
+    height =
+      7,
+    dpi =
+      300
+  )
+}
+```
+
+# 24. Comparison with primary mixed-model conclusions
+
+This section imports the existing mixed-model overall QTL results if available,
+allowing publication-style nominal evidence to be reviewed alongside the primary
+FDR-controlled inference.
+
+```{r compare-with-primary-results}
+primary_result_file <- file.path(
+  project_root,
+  "05_results",
+  "yarn_analysis",
+  "tables",
+  "yarn_primary_overall_qtl_contrasts.csv"
+)
+
+primary_qtl_results <- if (
+  file.exists(
+    primary_result_file
+  )
+) {
+
+  readr::read_csv(
+    primary_result_file,
+    show_col_types = FALSE
+  )
+
+} else {
+
+  tibble::tibble()
+}
+
+publication_vs_primary_summary <- sister_line_significance_summary
+
+if (
+  nrow(
+    primary_qtl_results
+  ) > 0
+) {
+
+  publication_vs_primary_summary <-
+    publication_vs_primary_summary |>
+      dplyr::left_join(
+        primary_qtl_results |>
+          dplyr::select(
+            trait,
+            primary_overall_estimate =
+              estimate,
+            primary_overall_p =
+              p_value,
+            primary_overall_fdr =
+              fdr_p
+          ),
+        by =
+          "trait"
+      )
+}
+
+publication_vs_primary_summary
+```
+
+# 25. Save output tables
+
+```{r save-output-tables}
+output_tables <- list(
+
+  "yarn_publication_style_background_audit.csv" =
+    background_dataset_audit,
+
+  "yarn_publication_style_genotype_counts.csv" =
+    genotype_count_audit,
+
+  "yarn_publication_style_anova_status.csv" =
+    publication_anova_status,
+
+  "yarn_publication_style_all_anova_tables.csv" =
+    publication_anova_tables,
+
+  "yarn_publication_style_genotype_anova_tests.csv" =
+    genotype_anova_tests,
+
+  "yarn_publication_style_waller_means.csv" =
+    waller_means,
+
+  "yarn_publication_style_waller_groups.csv" =
+    waller_groups,
+
+  "yarn_publication_style_genotype_means.csv" =
+    publication_genotype_means,
+
+  "yarn_publication_style_sister_line_contrasts.csv" =
+    sister_line_contrasts,
+
+  "yarn_publication_style_pairwise_qtl_differences.csv" =
+    pairwise_qtl_difference_table,
+
+  "yarn_publication_style_sister_line_summary.csv" =
+    sister_line_significance_summary,
+
+  "yarn_publication_vs_primary_summary.csv" =
+    publication_vs_primary_summary
+)
+
+purrr::iwalk(
+  output_tables,
+  function(data, file_name) {
+
+    readr::write_csv(
+      data,
+      file.path(
+        publication_style_table_dir,
+        file_name
+      ),
+      na = ""
+    )
+  }
+)
+```
+
+# 26. Final review tables
+
+The most useful tables for interpretation are printed below.
+
+```{r final-review}
+genotype_anova_tests
+
+pairwise_qtl_difference_table |>
+  dplyr::filter(
+    p_value < 0.05
+  ) |>
+  dplyr::arrange(
+    p_value
+  )
+
+sister_line_significance_summary
+
+publication_vs_primary_summary
+```
+
+# 27. Final audit
+
+```{r final-audit}
+final_publication_style_audit <- tibble::tibble(
+  check = c(
+    "Backgrounds analyzed",
+    "Primary yarn traits",
+    "Background × trait ANOVAs requested",
+    "ANOVAs fitted successfully",
+    "Waller-Duncan grouping tables generated",
+    "Sister-line pair contrasts",
+    "Nominal sister-line contrasts p < 0.05",
+    "Sister-line contrasts FDR < 0.05"
+  ),
+  result = c(
+    length(
+      publication_background_data
+    ),
+    length(
+      primary_yarn_traits
+    ),
+    length(
+      publication_background_data
+    ) *
+      length(
+        primary_yarn_traits
+      ),
+    sum(
+      publication_anova_status$fitted
+    ),
+    dplyr::n_distinct(
+      paste(
+        waller_groups$background,
+        waller_groups$trait
+      )
+    ),
+    nrow(
+      sister_line_contrasts
+    ),
+    sum(
+      sister_line_contrasts$p_value < 0.05,
+      na.rm = TRUE
+    ),
+    sum(
+      sister_line_contrasts$fdr_within_trait < 0.05,
+      na.rm = TRUE
+    )
+  )
+)
+
+final_publication_style_audit
+
+readr::write_csv(
+  final_publication_style_audit,
+  file.path(
+    publication_style_table_dir,
+    "yarn_publication_style_final_audit.csv"
+  ),
+  na = ""
+)
+```
+
+# 28. Final status
+
+```{r final-status}
+message(
+  "\nPublication-comparable yarn analysis completed."
+)
+
+message(
+  "\nBackground-specific ANOVAs fitted: ",
+  sum(
+    publication_anova_status$fitted
+  ),
+  " of ",
+  nrow(
+    publication_anova_status
+  )
+)
+
+message(
+  "\nSister-line contrasts tested: ",
+  nrow(
+    sister_line_contrasts
+  )
+)
+
+message(
+  "\nNominal sister-line contrasts p < 0.05: ",
+  sum(
+    sister_line_contrasts$p_value < 0.05,
+    na.rm = TRUE
+  )
+)
+
+message(
+  "\nResults saved to:\n",
+  publication_style_table_dir
+)
+
+message(
+  "\nFigures saved to:\n",
+  publication_style_figure_dir
+)
+```
+
+# 29. Session information
+
+```{r session-information}
+sessionInfo()
+```

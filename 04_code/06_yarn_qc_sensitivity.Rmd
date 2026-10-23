@@ -1,0 +1,878 @@
+---
+title: "2022 Yarn QC Sensitivity Analyses"
+author: "Samantha Wan"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    code_folding: show
+    df_print: paged
+
+knit: >
+  (function(input_file, encoding) {
+
+    project_root <- normalizePath(
+      "C:/Users/sjw23099/Desktop/End-Use Evaluation",
+      winslash = "/",
+      mustWork = TRUE
+    )
+
+    output_folder <- file.path(
+      project_root,
+      "05_results",
+      "notebook_outputs"
+    )
+
+    dir.create(
+      output_folder,
+      recursive = TRUE,
+      showWarnings = FALSE
+    )
+
+    rmarkdown::render(
+      input = input_file,
+      encoding = encoding,
+      output_dir = output_folder,
+      output_file = "06_yarn_qc_sensitivity.html",
+      knit_root_dir = project_root
+    )
+  })
+---
+
+# Purpose
+
+This notebook performs targeted QC sensitivity analyses for the 2022 yarn results.
+
+It focuses on the three primary traits whose mixed models were singular:
+
+- normalized skein strength (`skein_mn_tex`);
+- single-end tenacity (`yarn_tenacity_cn_tex`);
+- thin places at -50% (`yarn_thin_50`).
+
+For these traits, the NIL-pair random-effect variance collapsed to approximately
+zero in the primary model. A simplified fixed-effects model is therefore fitted as
+a sensitivity analysis:
+
+`trait ~ background * qtl_status + field_rep`
+
+The notebook also checks whether the single-end tenacity result is sensitive to the
+one > |3 SD| residual observation (`AC164Pos` in the original diagnostic output).
+
+The primary mixed-model results remain the main analysis. These simplified models
+are used only to verify that the biological interpretation is not an artifact of a
+zero-variance random effect or one influential observation.
+
+```{r setup, include=FALSE}
+project_root <- normalizePath(
+  "C:/Users/sjw23099/Desktop/End-Use Evaluation",
+  winslash = "/",
+  mustWork = TRUE
+)
+
+knitr::opts_knit$set(
+  root.dir = project_root
+)
+
+source(
+  file.path(
+    project_root,
+    "04_code",
+    "00_setup.R"
+  ),
+  local = knitr::knit_global()
+)
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = TRUE,
+  message = TRUE,
+  error = FALSE
+)
+
+options(
+  contrasts = c(
+    "contr.sum",
+    "contr.poly"
+  )
+)
+```
+
+# 1. Check required packages
+
+```{r check-packages}
+required_packages <- c(
+  "dplyr",
+  "readr",
+  "tibble",
+  "purrr",
+  "emmeans",
+  "car"
+)
+
+missing_packages <- required_packages[
+  !vapply(
+    required_packages,
+    requireNamespace,
+    logical(1),
+    quietly = TRUE
+  )
+]
+
+if (length(missing_packages) > 0) {
+  stop(
+    "Install the following packages before continuing: ",
+    paste(
+      missing_packages,
+      collapse = ", "
+    )
+  )
+}
+```
+
+# 2. Locate cleaned sample-level yarn data
+
+```{r locate-input-data}
+sample_file <- file.path(
+  paths$data_processed,
+  "yarn_2022_sample_level_clean.csv"
+)
+
+if (!file.exists(sample_file)) {
+  stop(
+    "Could not find cleaned yarn sample-level data:\n",
+    sample_file
+  )
+}
+
+yarn_sample <- readr::read_csv(
+  sample_file,
+  show_col_types = FALSE
+)
+```
+
+# 3. Prepare formal NIIL analysis population
+
+```{r prepare-formal-data}
+yarn_formal <- yarn_sample |>
+  dplyr::filter(
+    material_type == "NIIL",
+    qtl_status %in% c(
+      "Negative",
+      "Positive"
+    )
+  ) |>
+  dplyr::mutate(
+    background =
+      factor(
+        background,
+        levels = c(
+          "Acala",
+          "Deltapine",
+          "Georgia",
+          "Paymaster"
+        )
+      ),
+    qtl_status =
+      factor(
+        qtl_status,
+        levels = c(
+          "Negative",
+          "Positive"
+        )
+      ),
+    field_rep =
+      factor(
+        field_rep_inferred
+      ),
+    pair_id =
+      interaction(
+        background,
+        nil_set,
+        drop = TRUE
+      )
+  ) |>
+  droplevels()
+
+formal_audit <- tibble::tibble(
+  check = c(
+    "Formal NIIL samples",
+    "Unique genotypes",
+    "Unique NIL pairs"
+  ),
+  result = c(
+    nrow(yarn_formal),
+    dplyr::n_distinct(yarn_formal$genotype),
+    dplyr::n_distinct(yarn_formal$pair_id)
+  )
+)
+
+formal_audit
+```
+
+# 4. Define singular traits
+
+```{r define-singular-traits}
+singular_traits <- c(
+  "skein_mn_tex",
+  "yarn_tenacity_cn_tex",
+  "yarn_thin_50"
+)
+
+trait_labels <- c(
+  skein_mn_tex =
+    "Normalized skein strength (mN/tex)",
+  yarn_tenacity_cn_tex =
+    "Single-end tenacity (cN/tex)",
+  yarn_thin_50 =
+    "Thin places (-50%)"
+)
+```
+
+# 5. Fit simplified fixed-effects models
+
+```{r fit-simplified-models}
+fit_simplified_model <- function(trait) {
+
+  model_data <- yarn_formal |>
+    dplyr::filter(
+      !is.na(
+        .data[[trait]]
+      )
+    ) |>
+    droplevels()
+
+  formula_object <- stats::as.formula(
+    paste0(
+      trait,
+      " ~ background * qtl_status + field_rep"
+    )
+  )
+
+  fit <- tryCatch(
+    stats::lm(
+      formula_object,
+      data = model_data
+    ),
+    error = function(e) {
+      e
+    }
+  )
+
+  list(
+    trait = trait,
+    n = nrow(model_data),
+    model = fit
+  )
+}
+
+simplified_results <- purrr::map(
+  singular_traits,
+  fit_simplified_model
+)
+
+names(simplified_results) <- singular_traits
+```
+
+# 6. Model status
+
+```{r simplified-model-status}
+simplified_model_status <- purrr::map_dfr(
+  simplified_results,
+  function(result) {
+
+    if (inherits(result$model, "error")) {
+      return(
+        tibble::tibble(
+          trait = result$trait,
+          n = result$n,
+          fitted = FALSE,
+          message = conditionMessage(result$model)
+        )
+      )
+    }
+
+    tibble::tibble(
+      trait = result$trait,
+      n = result$n,
+      fitted = TRUE,
+      message = NA_character_
+    )
+  }
+) |>
+  dplyr::mutate(
+    trait_label =
+      unname(
+        trait_labels[trait]
+      )
+  )
+
+simplified_model_status
+```
+
+# 7. Type III tests
+
+```{r simplified-type3}
+extract_lm_type3 <- function(result) {
+
+  if (inherits(result$model, "error")) {
+    return(tibble::tibble())
+  }
+
+  a <- car::Anova(
+    result$model,
+    type = 3
+  )
+
+  out <- as.data.frame(a) |>
+    tibble::rownames_to_column("effect") |>
+    janitor::clean_names()
+
+  tibble::tibble(
+    trait = result$trait,
+    effect = out$effect,
+    df = out$df,
+    f_value = out$f_value,
+    p_value = out$pr_f
+  )
+}
+
+simplified_type3 <- purrr::map_dfr(
+  simplified_results,
+  extract_lm_type3
+) |>
+  dplyr::mutate(
+    trait_label =
+      unname(
+        trait_labels[trait]
+      )
+  ) |>
+  dplyr::group_by(effect) |>
+  dplyr::mutate(
+    fdr_p =
+      stats::p.adjust(
+        p_value,
+        method = "BH"
+      )
+  ) |>
+  dplyr::ungroup()
+
+simplified_type3
+```
+
+# 8. Overall QTL contrasts
+
+```{r simplified-overall-qtl-contrasts}
+extract_lm_qtl_contrast <- function(result) {
+
+  if (inherits(result$model, "error")) {
+    return(tibble::tibble())
+  }
+
+  em <- emmeans::emmeans(
+    result$model,
+    ~ qtl_status
+  )
+
+  contrast_result <- emmeans::contrast(
+    em,
+    method = list(
+      "Positive - Negative" =
+        c(
+          -1,
+          1
+        )
+    ),
+    adjust = "none"
+  )
+
+  as.data.frame(
+    contrast_result
+  ) |>
+    janitor::clean_names() |>
+    tibble::as_tibble() |>
+    dplyr::mutate(
+      trait = result$trait,
+      .before = 1
+    )
+}
+
+simplified_qtl_contrasts <- purrr::map_dfr(
+  simplified_results,
+  extract_lm_qtl_contrast
+) |>
+  dplyr::mutate(
+    trait_label =
+      unname(
+        trait_labels[trait]
+      ),
+    fdr_p =
+      stats::p.adjust(
+        p_value,
+        method = "BH"
+      )
+  ) |>
+  dplyr::arrange(
+    fdr_p,
+    p_value
+  )
+
+simplified_qtl_contrasts
+```
+
+# 9. Background-specific contrasts
+
+```{r simplified-background-qtl-contrasts}
+extract_lm_background_contrasts <- function(result) {
+
+  if (inherits(result$model, "error")) {
+    return(tibble::tibble())
+  }
+
+  em <- emmeans::emmeans(
+    result$model,
+    ~ qtl_status | background
+  )
+
+  contrast_result <- emmeans::contrast(
+    em,
+    method = list(
+      "Positive - Negative" =
+        c(
+          -1,
+          1
+        )
+    ),
+    by = "background",
+    adjust = "none"
+  )
+
+  as.data.frame(
+    contrast_result
+  ) |>
+    janitor::clean_names() |>
+    tibble::as_tibble() |>
+    dplyr::mutate(
+      trait = result$trait,
+      .before = 1
+    )
+}
+
+simplified_background_qtl <- purrr::map_dfr(
+  simplified_results,
+  extract_lm_background_contrasts
+) |>
+  dplyr::mutate(
+    trait_label =
+      unname(
+        trait_labels[trait]
+      )
+  ) |>
+  dplyr::group_by(background) |>
+  dplyr::mutate(
+    fdr_p =
+      stats::p.adjust(
+        p_value,
+        method = "BH"
+      )
+  ) |>
+  dplyr::ungroup()
+
+simplified_background_qtl
+```
+
+# 10. Tenacity-specific influential-observation sensitivity
+
+The original primary diagnostic flagged `AC164Pos` for tenacity with a standardized
+residual greater than 3. This analysis excludes only that single observation.
+
+```{r tenacity-outlier-sensitivity}
+tenacity_flagged_genotype <- "AC164Pos"
+
+tenacity_data_no_flag <- yarn_formal |>
+  dplyr::filter(
+    genotype != tenacity_flagged_genotype,
+    !is.na(yarn_tenacity_cn_tex)
+  ) |>
+  droplevels()
+
+tenacity_no_flag_model <- stats::lm(
+  yarn_tenacity_cn_tex ~
+    background * qtl_status +
+    field_rep,
+  data = tenacity_data_no_flag
+)
+
+tenacity_no_flag_type3 <- car::Anova(
+  tenacity_no_flag_model,
+  type = 3
+) |>
+  as.data.frame() |>
+  tibble::rownames_to_column("effect") |>
+  janitor::clean_names()
+
+tenacity_no_flag_emm <- emmeans::emmeans(
+  tenacity_no_flag_model,
+  ~ qtl_status
+)
+
+tenacity_no_flag_contrast <- emmeans::contrast(
+  tenacity_no_flag_emm,
+  method = list(
+    "Positive - Negative" =
+      c(
+        -1,
+        1
+      )
+  ),
+  adjust = "none"
+) |>
+  as.data.frame() |>
+  janitor::clean_names() |>
+  tibble::as_tibble()
+
+tenacity_no_flag_contrast
+```
+
+# 11. Tenacity sensitivity with actual yarn count
+
+This model tests whether the simplified tenacity effect persists after adjusting
+for actual yarn count.
+
+```{r tenacity-count-adjusted-sensitivity}
+tenacity_count_model <- stats::lm(
+  yarn_tenacity_cn_tex ~
+    background * qtl_status +
+    field_rep +
+    actual_yarn_count_ne,
+  data = yarn_formal
+)
+
+tenacity_count_type3 <- car::Anova(
+  tenacity_count_model,
+  type = 3
+) |>
+  as.data.frame() |>
+  tibble::rownames_to_column("effect") |>
+  janitor::clean_names()
+
+tenacity_count_emm <- emmeans::emmeans(
+  tenacity_count_model,
+  ~ qtl_status
+)
+
+tenacity_count_contrast <- emmeans::contrast(
+  tenacity_count_emm,
+  method = list(
+    "Positive - Negative" =
+      c(
+        -1,
+        1
+      )
+  ),
+  adjust = "none"
+) |>
+  as.data.frame() |>
+  janitor::clean_names() |>
+  tibble::as_tibble()
+
+tenacity_count_contrast
+```
+
+# 12. Tenacity sensitivity with ratch
+
+```{r tenacity-ratch-adjusted-sensitivity}
+tenacity_ratch_model <- stats::lm(
+  yarn_tenacity_cn_tex ~
+    background * qtl_status +
+    field_rep +
+    factor(ratch),
+  data = yarn_formal
+)
+
+tenacity_ratch_type3 <- car::Anova(
+  tenacity_ratch_model,
+  type = 3
+) |>
+  as.data.frame() |>
+  tibble::rownames_to_column("effect") |>
+  janitor::clean_names()
+
+tenacity_ratch_emm <- emmeans::emmeans(
+  tenacity_ratch_model,
+  ~ qtl_status
+)
+
+tenacity_ratch_contrast <- emmeans::contrast(
+  tenacity_ratch_emm,
+  method = list(
+    "Positive - Negative" =
+      c(
+        -1,
+        1
+      )
+  ),
+  adjust = "none"
+) |>
+  as.data.frame() |>
+  janitor::clean_names() |>
+  tibble::as_tibble()
+
+tenacity_ratch_contrast
+```
+
+# 13. Combined tenacity comparison table
+
+```{r combined-tenacity-comparison}
+tenacity_primary_simplified <- simplified_qtl_contrasts |>
+  dplyr::filter(
+    trait == "yarn_tenacity_cn_tex"
+  ) |>
+  dplyr::transmute(
+    analysis = "Simplified fixed-effects",
+    estimate,
+    se,
+    df,
+    t_ratio,
+    p_value
+  )
+
+tenacity_no_flag_summary <- tenacity_no_flag_contrast |>
+  dplyr::transmute(
+    analysis = "Simplified; AC164Pos excluded",
+    estimate,
+    se,
+    df,
+    t_ratio,
+    p_value
+  )
+
+tenacity_count_summary <- tenacity_count_contrast |>
+  dplyr::transmute(
+    analysis = "Simplified + actual yarn count",
+    estimate,
+    se,
+    df,
+    t_ratio,
+    p_value
+  )
+
+tenacity_ratch_summary <- tenacity_ratch_contrast |>
+  dplyr::transmute(
+    analysis = "Simplified + ratch",
+    estimate,
+    se,
+    df,
+    t_ratio,
+    p_value
+  )
+
+tenacity_sensitivity_summary <- dplyr::bind_rows(
+  tenacity_primary_simplified,
+  tenacity_no_flag_summary,
+  tenacity_count_summary,
+  tenacity_ratch_summary
+)
+
+tenacity_sensitivity_summary
+```
+
+# 14. Residual diagnostics for simplified singular models
+
+```{r simplified-residual-diagnostics}
+extract_lm_residuals <- function(result) {
+
+  if (inherits(result$model, "error")) {
+    return(tibble::tibble())
+  }
+
+  model_frame <- stats::model.frame(
+    result$model
+  )
+
+  row_ids <- as.integer(
+    rownames(
+      model_frame
+    )
+  )
+
+  d <- yarn_formal[
+    row_ids,
+    ,
+    drop = FALSE
+  ]
+
+  residual_values <- stats::residuals(
+    result$model
+  )
+
+  residual_sd <- stats::sd(
+    residual_values,
+    na.rm = TRUE
+  )
+
+  d |>
+    dplyr::transmute(
+      trait = result$trait,
+      field_sample_id,
+      genotype,
+      background,
+      qtl_status,
+      value =
+        .data[[result$trait]],
+      fitted =
+        stats::fitted(
+          result$model
+        ),
+      residual =
+        residual_values,
+      standardized_residual =
+        residual_values /
+        residual_sd
+    )
+}
+
+simplified_residuals <- purrr::map_dfr(
+  simplified_results,
+  extract_lm_residuals
+)
+
+simplified_outliers <- simplified_residuals |>
+  dplyr::filter(
+    abs(
+      standardized_residual
+    ) > 3
+  ) |>
+  dplyr::arrange(
+    trait,
+    dplyr::desc(
+      abs(
+        standardized_residual
+      )
+    )
+  )
+
+simplified_outliers
+```
+
+# 15. Save outputs
+
+```{r save-outputs}
+qc_output_dir <- file.path(
+  project_root,
+  "05_results",
+  "yarn_analysis",
+  "tables"
+)
+
+dir.create(
+  qc_output_dir,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+output_tables <- list(
+  "yarn_simplified_model_status.csv" =
+    simplified_model_status,
+
+  "yarn_simplified_type3_tests.csv" =
+    simplified_type3,
+
+  "yarn_simplified_qtl_contrasts.csv" =
+    simplified_qtl_contrasts,
+
+  "yarn_simplified_background_qtl_contrasts.csv" =
+    simplified_background_qtl,
+
+  "yarn_tenacity_no_flag_type3.csv" =
+    tenacity_no_flag_type3,
+
+  "yarn_tenacity_no_flag_qtl_contrast.csv" =
+    tenacity_no_flag_contrast,
+
+  "yarn_tenacity_count_adjusted_type3.csv" =
+    tenacity_count_type3,
+
+  "yarn_tenacity_count_adjusted_qtl_contrast.csv" =
+    tenacity_count_contrast,
+
+  "yarn_tenacity_ratch_adjusted_type3.csv" =
+    tenacity_ratch_type3,
+
+  "yarn_tenacity_ratch_adjusted_qtl_contrast.csv" =
+    tenacity_ratch_contrast,
+
+  "yarn_tenacity_sensitivity_summary.csv" =
+    tenacity_sensitivity_summary,
+
+  "yarn_simplified_residual_outliers_over_3sd.csv" =
+    simplified_outliers
+)
+
+purrr::iwalk(
+  output_tables,
+  function(data, file_name) {
+
+    readr::write_csv(
+      data,
+      file.path(
+        qc_output_dir,
+        file_name
+      ),
+      na = ""
+    )
+  }
+)
+```
+
+# 16. Final review tables
+
+```{r final-review}
+simplified_qtl_contrasts
+simplified_type3 |>
+  dplyr::filter(
+    effect %in% c(
+      "qtl_status",
+      "background:qtl_status"
+    )
+  )
+tenacity_sensitivity_summary
+simplified_outliers
+```
+
+# 17. Final status
+
+```{r final-status}
+message(
+  "\nYarn QC sensitivity analysis completed."
+)
+
+message(
+  "\nSimplified singular-trait models fitted: ",
+  sum(
+    simplified_model_status$fitted
+  ),
+  " of ",
+  length(
+    singular_traits
+  )
+)
+
+message(
+  "\nTenacity flagged observation excluded in sensitivity: ",
+  tenacity_flagged_genotype
+)
+
+message(
+  "\nResults saved to:\n",
+  qc_output_dir
+)
+```
+
+# 18. Session information
+
+```{r session-information}
+sessionInfo()
+```

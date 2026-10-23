@@ -1,0 +1,24 @@
+genotype_original,genotype,background,nil_set,qtl_status,material_type,n_samples
+AC 107 Neg,AC107Neg,Acala,AC107,Negative,NIIL,4
+AC 107 Pos,AC107Pos,Acala,AC107,Positive,NIIL,4
+AC 164 Neg,AC164Neg,Acala,AC164,Negative,NIIL,4
+AC 164 Pos,AC164Pos,Acala,AC164,Positive,NIIL,4
+Acala SJ4_01,ACSJ4,Acala,,Parent_Check,Recurrent parent,4
+DP 213 Neg,DP213Neg,Deltapine,DP213,Negative,NIIL,4
+DP 213 Pos,DP213Pos,Deltapine,DP213,Positive,NIIL,4
+DP 263 Neg,DP263Neg,Deltapine,DP263,Negative,NIIL,4
+DP 263 Pos,DP263Pos,Deltapine,DP263,Positive,NIIL,4
+DP 50_01,DP50,Deltapine,,Parent_Check,Recurrent parent,4
+GA 428 Neg,GA428Neg,Georgia,GA428,Negative,NIIL,4
+GA 428 Pos,GA428Pos,Georgia,GA428,Positive,NIIL,4
+GA 437 Neg,GA437Neg,Georgia,GA437,Negative,NIIL,4
+GA 437 Pos,GA437Pos,Georgia,GA437,Positive,NIIL,4
+GA2004089,GA089,Georgia,,Parent_Check,Recurrent parent,4
+PM 304 Neg,PM304Neg,Paymaster,PM304,Negative,NIIL,4
+PM 304 Pos,PM304Pos,Paymaster,PM304,Positive,NIIL,4
+PM 321 Neg,PM321Neg,Paymaster,PM321,Negative,NIIL,4
+PM 321 Pos,PM321Pos,Paymaster,PM321,Positive,NIIL,4
+PM HS26_01,PMHS26,Paymaster,,Parent_Check,Recurrent parent,4
+Sealand 883_01,SL883,Donor,,Parent_Check,QTL donor,4
+GA 2018001,GA201800,Check,,Parent_Check,Check,4
+GA 2018081,GA201808,Check,,Parent_Check,Check,4

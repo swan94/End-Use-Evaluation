@@ -1,0 +1,1948 @@
+---
+title: "AFIS Processing-Stage Mixed-Model Analysis"
+author: "Samantha Wan"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    code_folding: show
+    df_print: paged
+
+knit: >
+  (function(input_file, encoding) {
+
+    project_root <- normalizePath(
+      "C:/Users/sjw23099/Desktop/End-Use Evaluation",
+      winslash = "/",
+      mustWork = TRUE
+    )
+
+    output_folder <- file.path(
+      project_root,
+      "05_results",
+      "notebook_outputs"
+    )
+
+    dir.create(
+      output_folder,
+      recursive = TRUE,
+      showWarnings = FALSE
+    )
+
+    rmarkdown::render(
+      input = input_file,
+      encoding = encoding,
+      output_dir = output_folder,
+      output_file = "03_analyze_AFIS_processing_stages.html",
+      knit_root_dir = project_root
+    )
+  })
+---
+
+# Purpose
+
+This notebook evaluates the effects of the qFL-Chr.25 introgression and
+processing stage on AFIS fiber-quality measurements.
+
+The primary mixed model evaluates:
+
+- cotton genetic background;
+- qFL-Chr.25 status;
+- processing stage;
+- qFL-Chr.25 × processing-stage interaction;
+- background-specific qFL-Chr.25 responses.
+
+The field sample is the repeated-measures experimental unit because each
+sample was evaluated at Bale, Opened, Carded, and Sliver stages.
+
+```{r setup, include=FALSE}
+project_root <- normalizePath(
+  "C:/Users/sjw23099/Desktop/End-Use Evaluation",
+  winslash = "/",
+  mustWork = TRUE
+)
+
+knitr::opts_knit$set(
+  root.dir = project_root
+)
+
+source(
+  file.path(
+    project_root,
+    "04_code",
+    "00_setup.R"
+  ),
+  local = knitr::knit_global()
+)
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = TRUE,
+  message = TRUE,
+  error = FALSE,
+  fig.width = 9,
+  fig.height = 6
+)
+
+options(
+  contrasts = c(
+    "contr.sum",
+    "contr.poly"
+  )
+)
+```
+
+# 1. Check required packages
+
+```{r check-packages}
+required_packages <- c(
+  "dplyr",
+  "tidyr",
+  "purrr",
+  "readr",
+  "tibble",
+  "stringr",
+  "ggplot2",
+  "lme4",
+  "lmerTest",
+  "emmeans",
+  "broom.mixed"
+)
+
+missing_packages <- required_packages[
+  !vapply(
+    required_packages,
+    requireNamespace,
+    logical(1),
+    quietly = TRUE
+  )
+]
+
+if (length(missing_packages) > 0) {
+  stop(
+    "Install the following packages before continuing: ",
+    paste(
+      missing_packages,
+      collapse = ", "
+    )
+  )
+}
+```
+
+# 2. Create analysis-output folders
+
+```{r create-output-folders}
+analysis_root <- file.path(
+  project_root,
+  "05_results",
+  "afis_stage_analysis"
+)
+
+analysis_tables <- file.path(
+  analysis_root,
+  "tables"
+)
+
+analysis_models <- file.path(
+  analysis_root,
+  "models"
+)
+
+analysis_figures <- file.path(
+  analysis_root,
+  "figures"
+)
+
+analysis_diagnostics <- file.path(
+  analysis_root,
+  "diagnostics"
+)
+
+purrr::walk(
+  c(
+    analysis_root,
+    analysis_tables,
+    analysis_models,
+    analysis_figures,
+    analysis_diagnostics
+  ),
+  dir.create,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+```
+
+# 3. Import the cleaned primary-trait dataset
+
+```{r import-clean-afis}
+afis_file <- file.path(
+  paths$data_processed,
+  "afis_2022_primary_traits_long.csv"
+)
+
+if (!file.exists(afis_file)) {
+  stop(
+    "The cleaned primary-trait AFIS file was not found:\n",
+    afis_file
+  )
+}
+
+afis_all <- readr::read_csv(
+  afis_file,
+  show_col_types = FALSE,
+  col_types = readr::cols(
+    field_sample_id = readr::col_character(),
+    genotype = readr::col_character(),
+    background = readr::col_character(),
+    nil_set = readr::col_character(),
+    qtl_status = readr::col_character(),
+    material_type = readr::col_character(),
+    field_rep = readr::col_character(),
+    fiber_id = readr::col_character(),
+    minispin_run = readr::col_character(),
+    processing_stage = readr::col_character(),
+    trait_label = readr::col_character(),
+    value = readr::col_double(),
+    .default = readr::col_guess()
+  )
+) |>
+  janitor::clean_names()
+
+dplyr::glimpse(
+  afis_all
+)
+```
+
+# 4. Validate required columns
+
+```{r validate-required-columns}
+required_columns <- c(
+  "field_sample_id",
+  "genotype",
+  "background",
+  "nil_set",
+  "qtl_status",
+  "field_rep",
+  "processing_stage",
+  "trait_label",
+  "value"
+)
+
+missing_columns <- setdiff(
+  required_columns,
+  names(afis_all)
+)
+
+if (length(missing_columns) > 0) {
+  stop(
+    "The AFIS dataset is missing these required columns: ",
+    paste(
+      missing_columns,
+      collapse = ", "
+    )
+  )
+}
+```
+
+# 5. Prepare factors
+
+```{r prepare-factors}
+afis_all <- afis_all |>
+  dplyr::mutate(
+
+    field_sample_id = factor(
+      field_sample_id
+    ),
+
+    genotype = factor(
+      genotype
+    ),
+
+    background = factor(
+      background
+    ),
+
+    nil_set = factor(
+      nil_set
+    ),
+
+    pair_id = interaction(
+      background,
+      nil_set,
+      drop = TRUE,
+      lex.order = TRUE
+    ),
+
+    qtl_status = factor(
+      qtl_status,
+      levels = c(
+        "Negative",
+        "Positive",
+        "Parent_Check"
+      )
+    ),
+
+    field_rep = factor(
+      field_rep
+    ),
+
+    processing_stage = factor(
+      processing_stage,
+      levels = c(
+        "Bale",
+        "Opened",
+        "Carded",
+        "Sliver"
+      ),
+      ordered = TRUE
+    ),
+
+    trait_label = factor(
+      trait_label
+    )
+  )
+```
+
+# 6. Overall data audit
+
+```{r overall-data-audit}
+overall_data_audit <- tibble::tibble(
+
+  check = c(
+    "Total long-format rows",
+    "Unique field samples",
+    "Unique genotypes",
+    "Unique backgrounds",
+    "Unique NIL sets",
+    "Unique primary traits",
+    "Missing trait values"
+  ),
+
+  result = c(
+    nrow(afis_all),
+
+    dplyr::n_distinct(
+      afis_all$field_sample_id
+    ),
+
+    dplyr::n_distinct(
+      afis_all$genotype
+    ),
+
+    dplyr::n_distinct(
+      afis_all$background
+    ),
+
+    dplyr::n_distinct(
+      afis_all$pair_id
+    ),
+
+    dplyr::n_distinct(
+      afis_all$trait_label
+    ),
+
+    sum(
+      is.na(afis_all$value)
+    )
+  )
+)
+
+overall_data_audit
+```
+
+# 7. Define the primary model dataset
+
+Parents and checks are excluded from formal qTL inference because they do not
+form Positive–Negative NIL contrasts.
+
+```{r create-primary-analysis-data}
+afis_model_data <- afis_all |>
+  dplyr::filter(
+    qtl_status %in% c(
+      "Negative",
+      "Positive"
+    )
+  ) |>
+  droplevels() |>
+  dplyr::filter(
+    !is.na(value),
+    !is.na(field_sample_id),
+    !is.na(background),
+    !is.na(pair_id),
+    !is.na(qtl_status),
+    !is.na(field_rep),
+    !is.na(processing_stage),
+    !is.na(trait_label)
+  )
+
+dplyr::glimpse(
+  afis_model_data
+)
+```
+
+# 8. Validate the repeated-measures structure
+
+```{r validate-repeated-measures}
+sample_trait_stage_counts <- afis_model_data |>
+  dplyr::count(
+    field_sample_id,
+    trait_label,
+    name = "n_stages"
+  )
+
+sample_trait_stage_audit <- sample_trait_stage_counts |>
+  dplyr::count(
+    trait_label,
+    n_stages,
+    name = "n_field_samples"
+  ) |>
+  dplyr::arrange(
+    trait_label,
+    n_stages
+  )
+
+sample_trait_stage_audit
+```
+
+```{r incomplete-repeated-measures}
+incomplete_sample_traits <- sample_trait_stage_counts |>
+  dplyr::filter(
+    n_stages != 4
+  )
+
+incomplete_sample_traits
+```
+
+# 9. Experimental-design counts
+
+```{r design-counts}
+design_counts <- afis_model_data |>
+  dplyr::distinct(
+    field_sample_id,
+    genotype,
+    background,
+    pair_id,
+    qtl_status,
+    field_rep
+  ) |>
+  dplyr::count(
+    background,
+    pair_id,
+    qtl_status,
+    name = "n_field_samples"
+  ) |>
+  dplyr::arrange(
+    background,
+    pair_id,
+    qtl_status
+  )
+
+design_counts
+```
+
+# 10. Descriptive statistics
+
+```{r descriptive-statistics}
+afis_descriptive_statistics <- afis_all |>
+  dplyr::group_by(
+    trait_label,
+    background,
+    qtl_status,
+    processing_stage
+  ) |>
+  dplyr::summarise(
+
+    n = sum(
+      !is.na(value)
+    ),
+
+    mean = mean(
+      value,
+      na.rm = TRUE
+    ),
+
+    standard_deviation = stats::sd(
+      value,
+      na.rm = TRUE
+    ),
+
+    standard_error =
+      standard_deviation / sqrt(n),
+
+    minimum = min(
+      value,
+      na.rm = TRUE
+    ),
+
+    maximum = max(
+      value,
+      na.rm = TRUE
+    ),
+
+    .groups = "drop"
+  )
+
+afis_descriptive_statistics
+```
+
+# 11. Mixed-model specification
+
+For each AFIS trait, the primary model is:
+
+```text
+Trait =
+Background × qTL status × Processing stage
++ Field replication
++ random NIL-pair effect
++ random field-sample effect
+```
+
+The random field-sample effect accounts for repeated measurements across the
+four processing stages.
+
+```{r model-formula}
+primary_model_formula <- value ~
+  background * qtl_status * processing_stage +
+  field_rep +
+  (1 | pair_id) +
+  (1 | field_sample_id)
+
+primary_model_formula
+```
+
+# 12. Model-fitting function
+
+```{r model-fitting-function}
+fit_afis_model <- function(
+  data,
+  trait_name
+) {
+
+  trait_data <- data |>
+    dplyr::filter(
+      as.character(trait_label) ==
+        trait_name
+    ) |>
+    droplevels()
+
+  warnings_detected <- character()
+
+  fitted_model <- tryCatch(
+
+    withCallingHandlers(
+
+      lmerTest::lmer(
+        formula = primary_model_formula,
+        data = trait_data,
+        REML = TRUE,
+        na.action = stats::na.omit,
+        control = lme4::lmerControl(
+          optimizer = "bobyqa",
+          optCtrl = list(
+            maxfun = 200000
+          )
+        )
+      ),
+
+      warning = function(w) {
+
+        warnings_detected <<- c(
+          warnings_detected,
+          conditionMessage(w)
+        )
+
+        invokeRestart(
+          "muffleWarning"
+        )
+      }
+    ),
+
+    error = function(e) {
+      structure(
+        list(
+          message = conditionMessage(e)
+        ),
+        class = "afis_model_error"
+      )
+    }
+  )
+
+  list(
+    trait = trait_name,
+    data = trait_data,
+    model = fitted_model,
+    warnings = unique(
+      warnings_detected
+    )
+  )
+}
+```
+
+# 13. Fit models for all primary traits
+
+```{r fit-all-models}
+trait_names <- afis_model_data |>
+  dplyr::distinct(
+    trait_label
+  ) |>
+  dplyr::arrange(
+    trait_label
+  ) |>
+  dplyr::pull(
+    trait_label
+  ) |>
+  as.character()
+
+model_results <- purrr::map(
+  trait_names,
+  ~ fit_afis_model(
+    data = afis_model_data,
+    trait_name = .x
+  )
+)
+
+names(model_results) <- trait_names
+```
+
+# 14. Model-status audit
+
+```{r model-status-audit}
+model_status <- purrr::map_dfr(
+  model_results,
+  function(result) {
+
+    model_failed <- inherits(
+      result$model,
+      "afis_model_error"
+    )
+
+    tibble::tibble(
+
+      trait_label = result$trait,
+
+      n_observations = nrow(
+        result$data
+      ),
+
+      n_field_samples =
+        dplyr::n_distinct(
+          result$data$field_sample_id
+        ),
+
+      model_status = if (
+        model_failed
+      ) {
+        "FAILED"
+      } else {
+        "FITTED"
+      },
+
+      singular_fit = if (
+        model_failed
+      ) {
+        NA
+      } else {
+        lme4::isSingular(
+          result$model,
+          tol = 1e-4
+        )
+      },
+
+      warning_message = if (
+        length(result$warnings) == 0
+      ) {
+        NA_character_
+      } else {
+        paste(
+          result$warnings,
+          collapse = " | "
+        )
+      },
+
+      error_message = if (
+        model_failed
+      ) {
+        result$model$message
+      } else {
+        NA_character_
+      }
+    )
+  }
+)
+
+model_status
+```
+
+```{r stop-if-all-models-failed}
+if (
+  all(
+    model_status$model_status == "FAILED"
+  )
+) {
+  stop(
+    "All AFIS mixed models failed. Review the model-status table."
+  )
+}
+```
+
+# 15. Extract Type III fixed-effect tests
+
+```{r extract-type-three-tests}
+extract_anova <- function(result) {
+
+  if (
+    inherits(
+      result$model,
+      "afis_model_error"
+    )
+  ) {
+    return(
+      tibble::tibble(
+        trait_label = result$trait,
+        effect = NA_character_,
+        numerator_df = NA_real_,
+        denominator_df = NA_real_,
+        f_value = NA_real_,
+        p_value = NA_real_
+      )
+    )
+  }
+
+  # Use the generic anova() function.
+  # The lmerTest method is selected automatically because the model
+  # was fitted using lmerTest::lmer().
+  anova_object <- stats::anova(
+    result$model,
+    type = 3,
+    ddf = "Satterthwaite"
+  )
+
+  anova_table <- anova_object |>
+    as.data.frame() |>
+    tibble::rownames_to_column(
+      var = "effect"
+    ) |>
+    tibble::as_tibble()
+
+  # Identify the p-value column safely.
+  p_column <- grep(
+    "^Pr\\(",
+    names(anova_table),
+    value = TRUE
+  )[1]
+
+  if (
+    length(p_column) == 0 ||
+    is.na(p_column)
+  ) {
+    stop(
+      "The p-value column could not be identified for trait: ",
+      result$trait
+    )
+  }
+
+  tibble::tibble(
+    trait_label = result$trait,
+    effect = anova_table$effect,
+    numerator_df = anova_table[["NumDF"]],
+    denominator_df = anova_table[["DenDF"]],
+    f_value = anova_table[["F value"]],
+    p_value = anova_table[[p_column]]
+  )
+}
+
+afis_type3_tests <- purrr::map_dfr(
+  model_results,
+  extract_anova
+) |>
+  dplyr::group_by(
+    effect
+  ) |>
+  dplyr::mutate(
+    p_value_fdr = stats::p.adjust(
+      p_value,
+      method = "BH"
+    )
+  ) |>
+  dplyr::ungroup() |>
+  dplyr::arrange(
+    effect,
+    p_value
+  )
+
+afis_type3_tests
+```
+
+# 16. Extract variance components
+
+```{r extract-variance-components}
+extract_variance_components <- function(
+  result
+) {
+
+  if (
+    inherits(
+      result$model,
+      "afis_model_error"
+    )
+  ) {
+    return(
+      tibble::tibble(
+        trait_label = result$trait,
+        random_effect = NA_character_,
+        variance = NA_real_,
+        standard_deviation = NA_real_
+      )
+    )
+  }
+
+  broom.mixed::tidy(
+    result$model,
+    effects = "ran_pars",
+    scales = "sdcor"
+  ) |>
+    dplyr::transmute(
+
+      trait_label = result$trait,
+
+      random_effect = dplyr::coalesce(
+        group,
+        term
+      ),
+
+      variance = estimate^2,
+
+      standard_deviation = estimate
+    )
+}
+
+afis_variance_components <- purrr::map_dfr(
+  model_results,
+  extract_variance_components
+)
+
+afis_variance_components
+```
+
+# 17. Estimated marginal means
+
+These means average across backgrounds unless background is explicitly
+included in the table.
+
+```{r extract-emmeans}
+extract_emmeans <- function(
+  result
+) {
+
+  if (
+    inherits(
+      result$model,
+      "afis_model_error"
+    )
+  ) {
+    return(
+      tibble::tibble()
+    )
+  }
+
+  emmeans::emmeans(
+    result$model,
+    specs = ~ qtl_status * processing_stage
+  ) |>
+    as.data.frame() |>
+    tibble::as_tibble() |>
+    dplyr::mutate(
+      trait_label = result$trait,
+      .before = 1
+    )
+}
+
+afis_emmeans <- purrr::map_dfr(
+  model_results,
+  extract_emmeans
+)
+
+afis_emmeans
+```
+
+# 18. Positive-minus-Negative contrasts within each stage
+
+A positive estimate means the qFL-Chr.25-positive line had the larger
+estimated mean.
+
+```{r qtl-contrasts-within-stage}
+extract_qtl_stage_contrasts <- function(
+  result
+) {
+
+  if (
+    inherits(
+      result$model,
+      "afis_model_error"
+    )
+  ) {
+    return(
+      tibble::tibble()
+    )
+  }
+
+  qtl_emmeans <- emmeans::emmeans(
+    result$model,
+    specs = ~ qtl_status | processing_stage
+  )
+
+  emmeans::contrast(
+    qtl_emmeans,
+    method = list(
+      "Positive - Negative" = c(
+        -1,
+        1
+      )
+    ),
+    by = "processing_stage",
+    adjust = "none"
+  ) |>
+    as.data.frame() |>
+    tibble::as_tibble() |>
+    dplyr::mutate(
+      trait_label = result$trait,
+      .before = 1
+    )
+}
+
+afis_qtl_stage_contrasts <- purrr::map_dfr(
+  model_results,
+  extract_qtl_stage_contrasts
+) |>
+  dplyr::group_by(
+    processing_stage
+  ) |>
+  dplyr::mutate(
+    p_value_fdr = stats::p.adjust(
+      p.value,
+      method = "BH"
+    )
+  ) |>
+  dplyr::ungroup()
+
+afis_qtl_stage_contrasts
+```
+
+# 19. Background-specific Positive-minus-Negative contrasts
+
+```{r background-specific-contrasts}
+extract_background_stage_contrasts <- function(
+  result
+) {
+
+  if (
+    inherits(
+      result$model,
+      "afis_model_error"
+    )
+  ) {
+    return(
+      tibble::tibble()
+    )
+  }
+
+  background_emmeans <- emmeans::emmeans(
+    result$model,
+    specs =
+      ~ qtl_status |
+        background * processing_stage
+  )
+
+  emmeans::contrast(
+    background_emmeans,
+    method = list(
+      "Positive - Negative" = c(
+        -1,
+        1
+      )
+    ),
+    by = c(
+      "background",
+      "processing_stage"
+    ),
+    adjust = "none"
+  ) |>
+    as.data.frame() |>
+    tibble::as_tibble() |>
+    dplyr::mutate(
+      trait_label = result$trait,
+      .before = 1
+    )
+}
+
+afis_background_stage_contrasts <-
+  purrr::map_dfr(
+    model_results,
+    extract_background_stage_contrasts
+  ) |>
+  dplyr::group_by(
+    background,
+    processing_stage
+  ) |>
+  dplyr::mutate(
+    p_value_fdr = stats::p.adjust(
+      p.value,
+      method = "BH"
+    )
+  ) |>
+  dplyr::ungroup()
+
+afis_background_stage_contrasts
+```
+
+# 20. Processing-stage contrasts within qTL status
+
+```{r stage-contrasts-within-qtl}
+extract_stage_contrasts <- function(
+  result
+) {
+
+  if (
+    inherits(
+      result$model,
+      "afis_model_error"
+    )
+  ) {
+    return(
+      tibble::tibble()
+    )
+  }
+
+  stage_emmeans <- emmeans::emmeans(
+    result$model,
+    specs =
+      ~ processing_stage |
+        qtl_status
+  )
+
+  emmeans::contrast(
+    stage_emmeans,
+    method = "pairwise",
+    by = "qtl_status",
+    adjust = "tukey"
+  ) |>
+    as.data.frame() |>
+    tibble::as_tibble() |>
+    dplyr::mutate(
+      trait_label = result$trait,
+      .before = 1
+    )
+}
+
+afis_stage_contrasts <- purrr::map_dfr(
+  model_results,
+  extract_stage_contrasts
+)
+
+afis_stage_contrasts
+```
+
+# 21. Create a summary of key model tests
+
+```{r key-test-summary}
+key_effects <- c(
+  "qtl_status",
+  "processing_stage",
+  "background:qtl_status",
+  "qtl_status:processing_stage",
+  "background:qtl_status:processing_stage"
+)
+
+afis_key_test_summary <- afis_type3_tests |>
+  dplyr::filter(
+    effect %in% key_effects
+  ) |>
+  dplyr::select(
+    trait_label,
+    effect,
+    numerator_df,
+    denominator_df,
+    f_value,
+    p_value,
+    p_value_fdr
+  ) |>
+  tidyr::pivot_wider(
+    names_from = effect,
+    values_from = c(
+      f_value,
+      p_value,
+      p_value_fdr
+    ),
+    names_glue = "{effect}_{.value}"
+  )
+
+afis_key_test_summary
+```
+
+# 22. Model diagnostics
+```{r model-diagnostics}
+extract_diagnostics <- function(
+  result
+) {
+
+  if (
+    inherits(
+      result$model,
+      "afis_model_error"
+    )
+  ) {
+    return(
+      tibble::tibble()
+    )
+  }
+
+  model_data <- result$data
+
+  model_residuals <- stats::residuals(
+    result$model
+  )
+
+  model_fitted <- stats::fitted(
+    result$model
+  )
+
+  model_data |>
+    dplyr::mutate(
+      observation = dplyr::row_number(),
+
+      fitted_value = as.numeric(
+        model_fitted
+      ),
+
+      residual = as.numeric(
+        model_residuals
+      ),
+
+      standardized_residual =
+        as.numeric(
+          scale(
+            model_residuals
+          )
+        )
+    ) |>
+    dplyr::select(
+      trait_label,
+      observation,
+      field_sample_id,
+      genotype,
+      background,
+      pair_id,
+      qtl_status,
+      field_rep,
+      processing_stage,
+      value,
+      fitted_value,
+      residual,
+      standardized_residual
+    )
+}
+
+afis_diagnostics <- purrr::map_dfr(
+  model_results,
+  extract_diagnostics
+)
+
+diagnostic_summary <- afis_diagnostics |>
+  dplyr::group_by(
+    trait_label
+  ) |>
+  dplyr::summarise(
+
+    residual_mean = mean(
+      residual,
+      na.rm = TRUE
+    ),
+
+    residual_sd = stats::sd(
+      residual,
+      na.rm = TRUE
+    ),
+
+    maximum_absolute_standardized_residual =
+      max(
+        abs(
+          standardized_residual
+        ),
+        na.rm = TRUE
+      ),
+
+    observations_above_three_sd = sum(
+      abs(
+        standardized_residual
+      ) > 3,
+      na.rm = TRUE
+    ),
+
+    .groups = "drop"
+  )
+
+diagnostic_summary
+```
+```{r identify-residual-outliers}
+afis_residual_outliers <- afis_diagnostics |>
+  dplyr::filter(
+    abs(
+      standardized_residual
+    ) > 3
+  ) |>
+  dplyr::mutate(
+    absolute_standardized_residual =
+      abs(
+        standardized_residual
+      )
+  ) |>
+  dplyr::arrange(
+    dplyr::desc(
+      absolute_standardized_residual
+    )
+  )
+
+afis_residual_outliers
+```
+
+# 23. Nep_count sensitivity analysis
+
+The primary `Nep_count` model is retained as part of the common 13-trait
+analysis. Because its `pair_id` random-effect variance was estimated as zero,
+a simplified sensitivity model is fitted without `(1 | pair_id)` to verify
+that the biological conclusions are unchanged.
+
+```{r refit-nep-count-sensitivity}
+nep_count_data <- afis_model_data |>
+  dplyr::filter(
+    as.character(trait_label) == "Nep_count"
+  ) |>
+  droplevels()
+
+nep_count_model_simplified <- lmerTest::lmer(
+  value ~
+    background * qtl_status * processing_stage +
+    field_rep +
+    (1 | field_sample_id),
+  data = nep_count_data,
+  REML = TRUE,
+  na.action = stats::na.omit,
+  control = lme4::lmerControl(
+    optimizer = "bobyqa",
+    optCtrl = list(
+      maxfun = 200000
+    )
+  )
+)
+
+nep_count_sensitivity_singular <- lme4::isSingular(
+  nep_count_model_simplified,
+  tol = 1e-4
+)
+
+summary(
+  nep_count_model_simplified
+)
+
+nep_count_sensitivity_singular
+```
+
+```{r nep-count-type3-sensitivity}
+nep_count_type3_raw <- stats::anova(
+  nep_count_model_simplified,
+  type = 3,
+  ddf = "Satterthwaite"
+) |>
+  as.data.frame() |>
+  tibble::rownames_to_column(
+    var = "effect"
+  ) |>
+  tibble::as_tibble()
+
+nep_count_p_column <- grep(
+  "^Pr\\(",
+  names(nep_count_type3_raw),
+  value = TRUE
+)[1]
+
+if (
+  length(nep_count_p_column) == 0 ||
+  is.na(nep_count_p_column)
+) {
+  stop(
+    "The p-value column could not be identified for the ",
+    "simplified Nep_count model."
+  )
+}
+
+nep_count_type3_simplified <- tibble::tibble(
+  effect = nep_count_type3_raw$effect,
+  numerator_df = nep_count_type3_raw[["NumDF"]],
+  denominator_df = nep_count_type3_raw[["DenDF"]],
+  f_value = nep_count_type3_raw[["F value"]],
+  p_value = nep_count_type3_raw[[nep_count_p_column]]
+)
+
+nep_count_type3_simplified
+```
+
+```{r nep-count-stage-contrasts-sensitivity}
+nep_count_emmeans <- emmeans::emmeans(
+  nep_count_model_simplified,
+  specs = ~ qtl_status | processing_stage
+)
+
+nep_count_stage_contrasts_simplified <- emmeans::contrast(
+  nep_count_emmeans,
+  method = list(
+    "Positive - Negative" = c(
+      -1,
+      1
+    )
+  ),
+  by = "processing_stage",
+  adjust = "none"
+) |>
+  as.data.frame() |>
+  tibble::as_tibble()
+
+nep_count_stage_contrasts_simplified
+```
+
+# 24. Diagnostic plots
+
+```{r save-diagnostic-plots}
+plot_diagnostics <- function(
+  trait_name
+) {
+
+  plot_data <- afis_diagnostics |>
+    dplyr::filter(
+      trait_label == trait_name
+    )
+
+  residual_plot <- ggplot2::ggplot(
+    plot_data,
+    ggplot2::aes(
+      x = fitted_value,
+      y = residual
+    )
+  ) +
+    ggplot2::geom_point(
+      alpha = 0.65
+    ) +
+    ggplot2::geom_hline(
+      yintercept = 0,
+      linetype = 2
+    ) +
+    ggplot2::labs(
+      title = paste(
+        trait_name,
+        "Residuals versus fitted values"
+      ),
+      x = "Fitted value",
+      y = "Residual"
+    ) +
+    ggplot2::theme_bw()
+
+  qq_plot <- ggplot2::ggplot(
+    plot_data,
+    ggplot2::aes(
+      sample = residual
+    )
+  ) +
+    ggplot2::stat_qq() +
+    ggplot2::stat_qq_line() +
+    ggplot2::labs(
+      title = paste(
+        trait_name,
+        "Normal Q-Q plot"
+      ),
+      x = "Theoretical quantile",
+      y = "Observed residual quantile"
+    ) +
+    ggplot2::theme_bw()
+
+  ggplot2::ggsave(
+    filename = file.path(
+      analysis_diagnostics,
+      paste0(
+        trait_name,
+        "_residuals_vs_fitted.png"
+      )
+    ),
+    plot = residual_plot,
+    width = 8,
+    height = 6,
+    dpi = 300
+  )
+
+  ggplot2::ggsave(
+    filename = file.path(
+      analysis_diagnostics,
+      paste0(
+        trait_name,
+        "_qq_plot.png"
+      )
+    ),
+    plot = qq_plot,
+    width = 8,
+    height = 6,
+    dpi = 300
+  )
+}
+
+purrr::walk(
+  trait_names[
+    trait_names %in%
+      unique(
+        afis_diagnostics$trait_label
+      )
+  ],
+  plot_diagnostics
+)
+```
+
+# 25. Estimated-mean plots
+
+```{r create-estimated-mean-plots}
+plot_emmeans <- function(
+  trait_name
+) {
+
+  plot_data <- afis_emmeans |>
+    dplyr::filter(
+      trait_label == trait_name
+    )
+
+  trait_plot <- ggplot2::ggplot(
+    plot_data,
+    ggplot2::aes(
+      x = processing_stage,
+      y = emmean,
+      group = qtl_status,
+      shape = qtl_status,
+      linetype = qtl_status
+    )
+  ) +
+    ggplot2::geom_line(
+      linewidth = 0.8
+    ) +
+    ggplot2::geom_point(
+      size = 2.8
+    ) +
+    ggplot2::geom_errorbar(
+      ggplot2::aes(
+        ymin = lower.CL,
+        ymax = upper.CL
+      ),
+      width = 0.08
+    ) +
+    ggplot2::labs(
+      title = trait_name,
+      subtitle =
+        "Estimated marginal means across processing stages",
+      x = "Processing stage",
+      y = "Estimated marginal mean",
+      shape = "qFL-Chr.25 status",
+      linetype = "qFL-Chr.25 status"
+    ) +
+    ggplot2::theme_bw() +
+    ggplot2::theme(
+      legend.position = "top"
+    )
+
+  ggplot2::ggsave(
+    filename = file.path(
+      analysis_figures,
+      paste0(
+        trait_name,
+        "_estimated_means.png"
+      )
+    ),
+    plot = trait_plot,
+    width = 8.5,
+    height = 6,
+    dpi = 300
+  )
+
+  trait_plot
+}
+```
+
+```{r display-example-plot}
+plot_emmeans(
+  trait_names[1]
+)
+```
+
+```{r save-all-estimated-mean-plots}
+purrr::walk(
+  trait_names[
+    trait_names %in%
+      unique(
+        afis_emmeans$trait_label
+      )
+  ],
+  function(x) {
+    invisible(
+      plot_emmeans(x)
+    )
+  }
+)
+```
+
+# 26. Save model objects
+
+```{r save-model-objects}
+successful_models <- purrr::map(
+  model_results,
+  function(result) {
+
+    if (
+      inherits(
+        result$model,
+        "afis_model_error"
+      )
+    ) {
+      return(NULL)
+    }
+
+    result$model
+  }
+)
+
+successful_models <- successful_models[
+  !vapply(
+    successful_models,
+    is.null,
+    logical(1)
+  )
+]
+
+saveRDS(
+  successful_models,
+  file.path(
+    analysis_models,
+    "afis_primary_mixed_models.rds"
+  )
+)
+```
+
+# 27. Save analysis tables and diagnostic outputs
+
+```{r save-analysis-outputs}
+
+# -------------------------------------------------------------------------
+# Data audits and descriptive summaries
+# -------------------------------------------------------------------------
+
+readr::write_csv(
+  overall_data_audit,
+  file.path(
+    analysis_tables,
+    "afis_overall_data_audit.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  sample_trait_stage_audit,
+  file.path(
+    analysis_tables,
+    "afis_repeated_measures_audit.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  incomplete_sample_traits,
+  file.path(
+    analysis_tables,
+    "afis_incomplete_sample_traits.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  design_counts,
+  file.path(
+    analysis_tables,
+    "afis_design_counts.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  afis_descriptive_statistics,
+  file.path(
+    analysis_tables,
+    "afis_descriptive_statistics.csv"
+  ),
+  na = ""
+)
+
+
+# -------------------------------------------------------------------------
+# Primary mixed-model results
+# -------------------------------------------------------------------------
+
+readr::write_csv(
+  model_status,
+  file.path(
+    analysis_tables,
+    "afis_model_status.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  afis_type3_tests,
+  file.path(
+    analysis_tables,
+    "afis_type3_fixed_effect_tests.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  afis_key_test_summary,
+  file.path(
+    analysis_tables,
+    "afis_key_test_summary.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  afis_variance_components,
+  file.path(
+    analysis_tables,
+    "afis_variance_components.csv"
+  ),
+  na = ""
+)
+
+
+# -------------------------------------------------------------------------
+# Estimated marginal means and contrasts
+# -------------------------------------------------------------------------
+
+readr::write_csv(
+  afis_emmeans,
+  file.path(
+    analysis_tables,
+    "afis_estimated_marginal_means.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  afis_qtl_stage_contrasts,
+  file.path(
+    analysis_tables,
+    "afis_qtl_contrasts_by_stage.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  afis_background_stage_contrasts,
+  file.path(
+    analysis_tables,
+    "afis_background_specific_qtl_contrasts.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  afis_stage_contrasts,
+  file.path(
+    analysis_tables,
+    "afis_stage_contrasts_within_qtl.csv"
+  ),
+  na = ""
+)
+
+
+# -------------------------------------------------------------------------
+# Diagnostics
+# -------------------------------------------------------------------------
+
+readr::write_csv(
+  afis_diagnostics,
+  file.path(
+    analysis_diagnostics,
+    "afis_model_residuals.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  afis_residual_outliers,
+  file.path(
+    analysis_diagnostics,
+    "afis_residual_outliers_over_3sd.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  diagnostic_summary,
+  file.path(
+    analysis_tables,
+    "afis_model_diagnostic_summary.csv"
+  ),
+  na = ""
+)
+
+
+# -------------------------------------------------------------------------
+# Nep_count sensitivity analysis
+# -------------------------------------------------------------------------
+
+readr::write_csv(
+  nep_count_type3_simplified,
+  file.path(
+    analysis_tables,
+    "nep_count_type3_sensitivity.csv"
+  ),
+  na = ""
+)
+
+readr::write_csv(
+  nep_count_stage_contrasts_simplified,
+  file.path(
+    analysis_tables,
+    "nep_count_stage_contrasts_sensitivity.csv"
+  ),
+  na = ""
+)
+
+saveRDS(
+  nep_count_model_simplified,
+  file.path(
+    analysis_models,
+    "nep_count_simplified_model.rds"
+  )
+)
+
+
+# -------------------------------------------------------------------------
+# Confirm output locations
+# -------------------------------------------------------------------------
+
+message(
+  "\nAFIS analysis tables saved to:\n",
+  analysis_tables
+)
+
+message(
+  "\nAFIS diagnostic files saved to:\n",
+  analysis_diagnostics
+)
+
+message(
+  "\nAFIS model objects saved to:\n",
+  analysis_models
+)
+```
+
+# 28. Final analysis audit
+
+```{r final-analysis-audit}
+primary_singular_models <- sum(
+  model_status$singular_fit,
+  na.rm = TRUE
+)
+
+final_analysis_audit <- tibble::tibble(
+  check = c(
+    "Traits requested",
+    "Primary models successfully fitted",
+    "Primary models failed",
+    "Primary singular model fits",
+    "Nep_count sensitivity model singular",
+    "Incomplete sample-trait combinations",
+    "Type III result rows",
+    "QTL-by-stage contrast rows",
+    "Background-specific contrast rows",
+    "Stage-within-QTL contrast rows",
+    "Residual observations above |3 SD|"
+  ),
+  result = c(
+    as.character(
+      length(
+        trait_names
+      )
+    ),
+    as.character(
+      sum(
+        model_status$model_status ==
+          "FITTED"
+      )
+    ),
+    as.character(
+      sum(
+        model_status$model_status ==
+          "FAILED"
+      )
+    ),
+    as.character(
+      primary_singular_models
+    ),
+    as.character(
+      nep_count_sensitivity_singular
+    ),
+    as.character(
+      nrow(
+        incomplete_sample_traits
+      )
+    ),
+    as.character(
+      nrow(
+        afis_type3_tests
+      )
+    ),
+    as.character(
+      nrow(
+        afis_qtl_stage_contrasts
+      )
+    ),
+    as.character(
+      nrow(
+        afis_background_stage_contrasts
+      )
+    ),
+    as.character(
+      nrow(
+        afis_stage_contrasts
+      )
+    ),
+    as.character(
+      nrow(
+        afis_residual_outliers
+      )
+    )
+  )
+)
+
+final_analysis_audit
+```
+
+```{r save-final-audit}
+readr::write_csv(
+  final_analysis_audit,
+  file.path(
+    analysis_tables,
+    "afis_final_analysis_audit.csv"
+  ),
+  na = ""
+)
+```
+
+# 29. Key results for review
+
+```{r display-key-results}
+afis_type3_tests |>
+  dplyr::filter(
+    effect %in% c(
+      "qtl_status",
+      "processing_stage",
+      "qtl_status:processing_stage",
+      "background:qtl_status:processing_stage"
+    )
+  ) |>
+  dplyr::arrange(
+    effect,
+    p_value_fdr
+  )
+```
+
+```{r display-significant-stage-contrasts}
+afis_qtl_stage_contrasts |>
+  dplyr::filter(
+    p_value_fdr < 0.05
+  ) |>
+  dplyr::arrange(
+    trait_label,
+    processing_stage
+  )
+```
+
+# 30. Final status
+
+```{r final-status}
+message(
+  "\nAFIS processing-stage analysis completed."
+)
+
+message(
+  "\nTraits analyzed: ",
+  length(
+    trait_names
+  )
+)
+
+message(
+  "\nPrimary models fitted successfully: ",
+  sum(
+    model_status$model_status ==
+      "FITTED"
+  )
+)
+
+message(
+  "\nPrimary models that failed: ",
+  sum(
+    model_status$model_status ==
+      "FAILED"
+  )
+)
+
+message(
+  "\nPrimary singular model fits: ",
+  primary_singular_models
+)
+
+message(
+  "\nNep_count simplified sensitivity model singular: ",
+  nep_count_sensitivity_singular
+)
+
+message(
+  "\nResidual observations above |3 SD| flagged for QC: ",
+  nrow(
+    afis_residual_outliers
+  )
+)
+
+message(
+  "\nAnalysis tables saved to:\n",
+  analysis_tables
+)
+
+message(
+  "\nFigures saved to:\n",
+  analysis_figures
+)
+
+message(
+  "\nDiagnostic outputs saved to:\n",
+  analysis_diagnostics
+)
+
+message(
+  "\nModel objects saved to:\n",
+  analysis_models
+)
+```
+
+# 31. Session information
+
+```{r session-information}
+sessionInfo()
+```

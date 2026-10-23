@@ -1,0 +1,24 @@
+variable,analysis_level,description,manuscript_role
+skein_breaking_strength_n,sample/package,Skein breaking strength in Newtons,Secondary yarn-strength outcome
+skein_extension_mm,sample/package,Skein extension in millimeters,Secondary
+skein_weight_g,sample/package,Skein weight in grams,QC / count calculation
+actual_yarn_count_ne,sample,Observed English cotton count (Ne),Important covariate and processing outcome
+skein_mn_tex,sample/package,Normalized skein strength (mN/tex),Major yarn-strength outcome
+skein_elongation_pct,sample/package,Skein elongation percentage,Secondary
+single_end_break_force_n,sample/package/break,Single-end yarn breaking force in Newtons,Secondary strength outcome
+yarn_tenacity_cn_tex,sample/package/break,Single-end yarn tenacity in cN/tex,Primary yarn-strength outcome
+yarn_elongation_pct,sample/package/break,Single-end elongation percentage,Major elongation outcome
+yarn_work_to_break_n_cm,sample/package/break,Single-end work to break,Secondary
+yarn_evenness_cv_pct,sample/package,Yarn mass variation / evenness CV,Primary yarn-evenness outcome
+yarn_cvm_1yd_pct,sample/package,Yarn CVm over 1 yard,Secondary
+yarn_cvm_3yd_pct,sample/package,Yarn CVm over 3 yards,Secondary
+yarn_thin_50,sample/package,Thin places at -50% threshold,Primary imperfection outcome
+yarn_thick_50,sample/package,Thick places at +50% threshold,Primary imperfection outcome
+yarn_neps_200,sample/package,Yarn neps at +200% threshold,Primary imperfection outcome
+yarn_neps_280,sample/package,Yarn neps at +280% threshold,Secondary
+yarn_hairiness,sample/package,Uster yarn hairiness index,Primary hairiness outcome
+yarn_sh,sample/package,Short-hair index / SH reported by instrument,Secondary
+card_waste_pct,sample,Card waste as percentage of card input,Processing outcome
+nominal_yarn_count_ne,sample,Target yarn count,Processing descriptor
+actual_minus_nominal_count_ne,sample,Observed minus nominal yarn count,QC / sensitivity
+ratch,sample,MiniSpin ratch setting,Sensitivity / processing-condition variable
