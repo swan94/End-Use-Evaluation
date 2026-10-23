@@ -1,0 +1,19 @@
+trait,effect,df,f_value,p_value,trait_label,fdr_p
+skein_mn_tex,(Intercept),1,7101.919649617023,3.851178627193412e-58,Normalized skein strength (mN/tex),5.776767940790118e-58
+skein_mn_tex,background,3,1.5939799165222726,0.2017551578854374,Normalized skein strength (mN/tex),0.2017551578854374
+skein_mn_tex,qtl_status,1,5.426073623000897e-6,0.9981501604309078,Normalized skein strength (mN/tex),0.9981501604309078
+skein_mn_tex,field_rep,3,0.6800428054317577,0.5681583757860071,Normalized skein strength (mN/tex),0.7516196850830503
+skein_mn_tex,background:qtl_status,3,0.18374972628824332,0.9069829562640118,Normalized skein strength (mN/tex),0.9918621400305296
+skein_mn_tex,Residuals,53,,,Normalized skein strength (mN/tex),
+yarn_tenacity_cn_tex,(Intercept),1,10215.095173973208,2.6771027711651027e-62,Single-end tenacity (cN/tex),8.031308313495309e-62
+yarn_tenacity_cn_tex,background,3,2.6795426414412185,0.05619656703579071,Single-end tenacity (cN/tex),0.11652943479413296
+yarn_tenacity_cn_tex,qtl_status,1,5.2285818457202575,0.026241663221964306,Single-end tenacity (cN/tex),0.07872498966589292
+yarn_tenacity_cn_tex,field_rep,3,0.4027261453153661,0.7516196850830503,Single-end tenacity (cN/tex),0.7516196850830503
+yarn_tenacity_cn_tex,background:qtl_status,3,0.24769761318493402,0.8626119389460293,Single-end tenacity (cN/tex),0.9918621400305296
+yarn_tenacity_cn_tex,Residuals,53,,,Single-end tenacity (cN/tex),
+yarn_thin_50,(Intercept),1,209.12428874501788,4.8718456917125955e-20,Thin places (-50%),4.8718456917125955e-20
+yarn_thin_50,background,3,2.4042852449817405,0.0776862898627553,Thin places (-50%),0.11652943479413296
+yarn_thin_50,qtl_status,1,0.1334869281720659,0.7162978061344871,Thin places (-50%),0.9981501604309078
+yarn_thin_50,field_rep,3,0.8029384578950992,0.49780902384195025,Thin places (-50%),0.7516196850830503
+yarn_thin_50,background:qtl_status,3,0.0329869674321563,0.9918621400305296,Thin places (-50%),0.9918621400305296
+yarn_thin_50,Residuals,53,,,Thin places (-50%),

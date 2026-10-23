@@ -1,0 +1,9 @@
+trait,n,fitted,singular,message,trait_label
+skein_mn_tex,64,TRUE,TRUE,,Normalized skein strength (mN/tex)
+yarn_tenacity_cn_tex,64,TRUE,TRUE,,Single-end tenacity (cN/tex)
+yarn_elongation_pct,64,TRUE,FALSE,,Single-end elongation (%)
+yarn_evenness_cv_pct,64,TRUE,FALSE,,Yarn evenness CV (%)
+yarn_thin_50,64,TRUE,TRUE,,Thin places (-50%)
+yarn_thick_50,64,TRUE,FALSE,,Thick places (+50%)
+yarn_neps_200,64,TRUE,FALSE,,Neps (+200%)
+yarn_hairiness,64,TRUE,FALSE,,Hairiness

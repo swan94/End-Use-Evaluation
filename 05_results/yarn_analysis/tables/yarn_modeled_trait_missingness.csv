@@ -1,0 +1,19 @@
+trait,trait_label,missing_formal
+skein_mn_tex,Normalized skein strength (mN/tex),0
+yarn_tenacity_cn_tex,Single-end tenacity (cN/tex),0
+yarn_elongation_pct,Single-end elongation (%),0
+yarn_evenness_cv_pct,Yarn evenness CV (%),0
+yarn_thin_50,Thin places (-50%),0
+yarn_thick_50,Thick places (+50%),0
+yarn_neps_200,Neps (+200%),0
+yarn_hairiness,Hairiness,0
+skein_breaking_strength_n,Skein breaking strength (N),0
+skein_elongation_pct,Skein elongation (%),0
+single_end_break_force_n,Single-end breaking force (N),0
+yarn_work_to_break_n_cm,Work to break (N·cm),0
+yarn_cvm_1yd_pct,CVm 1 yd (%),0
+yarn_cvm_3yd_pct,CVm 3 yd (%),0
+yarn_neps_280,Neps (+280%),0
+yarn_sh,SH,0
+actual_yarn_count_ne,Actual yarn count (Ne),0
+card_waste_pct,Card waste (%),0

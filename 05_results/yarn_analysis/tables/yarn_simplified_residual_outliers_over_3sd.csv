@@ -1,0 +1,3 @@
+trait,field_sample_id,genotype,background,qtl_status,value,fitted,residual,standardized_residual
+yarn_tenacity_cn_tex,992296101213,AC164Pos,Acala,Positive,19.826,16.091218750000003,3.734781249999998,3.309054782132272
+yarn_thin_50,992296101204,DP213Neg,Deltapine,Negative,1450,558.5156249999998,891.4843750000002,3.665673075978943

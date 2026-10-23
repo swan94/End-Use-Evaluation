@@ -1,0 +1,4 @@
+dataset,expected_rows,observed_rows,matches_expectation
+Sample-level,92,92,TRUE
+Package-level,184,184,TRUE
+Single-end breaks,3680,3680,TRUE

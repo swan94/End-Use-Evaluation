@@ -1,0 +1,12 @@
+check,result
+Formal NIIL samples,64
+Primary yarn traits requested,8
+Primary models fitted,8
+Primary models failed,0
+Primary singular models,3
+Primary overall QTL contrasts,8
+Primary QTL contrasts FDR < 0.05,0
+Background × QTL tests FDR < 0.05,0
+Primary residual observations > |3 SD|,4
+Package-level confirmation models,8
+Technical-break rows,2560

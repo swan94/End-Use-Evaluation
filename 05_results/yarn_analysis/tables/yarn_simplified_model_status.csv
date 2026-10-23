@@ -1,0 +1,4 @@
+trait,n,fitted,message,trait_label
+skein_mn_tex,64,TRUE,,Normalized skein strength (mN/tex)
+yarn_tenacity_cn_tex,64,TRUE,,Single-end tenacity (cN/tex)
+yarn_thin_50,64,TRUE,,Thin places (-50%)

@@ -1,0 +1,9 @@
+trait,n,max_abs_standardized_residual,n_over_3sd
+skein_mn_tex,64,2.59825677522098,0
+yarn_elongation_pct,64,2.6301411015779435,0
+yarn_evenness_cv_pct,64,2.7349751128911324,0
+yarn_hairiness,64,2.401465287747695,0
+yarn_neps_200,64,3.3639273529827687,2
+yarn_tenacity_cn_tex,64,3.3090547821322676,1
+yarn_thick_50,64,2.7742501123654577,0
+yarn_thin_50,64,3.6656730759789427,1

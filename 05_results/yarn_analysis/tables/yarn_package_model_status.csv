@@ -1,0 +1,9 @@
+trait,n,fitted,singular,message
+skein_mn_tex,128,TRUE,TRUE,
+yarn_tenacity_cn_tex,128,TRUE,TRUE,
+yarn_elongation_pct,128,TRUE,TRUE,
+yarn_evenness_cv_pct,128,TRUE,FALSE,
+yarn_thin_50,128,TRUE,TRUE,
+yarn_thick_50,128,TRUE,FALSE,
+yarn_neps_200,128,TRUE,FALSE,
+yarn_hairiness,128,TRUE,FALSE,
