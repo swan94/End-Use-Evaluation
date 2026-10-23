@@ -1,0 +1,9 @@
+check,result
+Backgrounds analyzed,4
+Primary yarn traits,8
+Background × trait ANOVAs requested,32
+ANOVAs fitted successfully,32
+Waller-Duncan grouping tables generated,32
+Sister-line pair contrasts,64
+Nominal sister-line contrasts p < 0.05,7
+Sister-line contrasts FDR < 0.05,1

@@ -1,0 +1,9 @@
+trait,trait_label,pair_tests,nominal_p_lt_0_05,fdr_lt_0_05,positive_direction,negative_direction,primary_overall_estimate,primary_overall_p,primary_overall_fdr
+skein_mn_tex,Normalized skein strength (mN/tex),8,2,0,3,5,0.00367446155655937,0.998150872457246,0.998150872457246
+yarn_elongation_pct,Single-end elongation (%),8,1,0,5,3,0.06331249999999988,0.34161768082857735,0.8187613210740429
+yarn_evenness_cv_pct,Yarn evenness CV (%),8,0,0,4,4,0.22765625000000012,0.5636131836924345,0.8187613210740429
+yarn_hairiness,Hairiness,8,1,0,3,5,-0.0804687499999999,0.14866653174772493,0.5946661269908997
+yarn_neps_200,Neps (+200%),8,0,0,4,4,37.34375,0.4642363658305061,0.8187613210740429
+yarn_tenacity_cn_tex,Single-end tenacity (cN/tex),8,2,1,5,3,0.7034375000000005,0.02657829460577055,0.21262635684616443
+yarn_thick_50,Thick places (+50%),8,0,0,3,5,37.5,0.6846950642047143,0.8187613210740429
+yarn_thin_50,Thin places (-50%),8,1,0,4,4,-24.21875,0.7164161559397876,0.8187613210740429

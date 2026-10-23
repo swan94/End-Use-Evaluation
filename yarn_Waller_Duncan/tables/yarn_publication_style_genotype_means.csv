@@ -1,0 +1,193 @@
+background,trait_label,genotype,trait,n,mean,sd,se
+Acala,Normalized skein strength (mN/tex),AC107Neg,skein_mn_tex,4,65.56086733162283,6.60004788898742,3.30002394449371
+Acala,Single-end elongation (%),AC107Neg,yarn_elongation_pct,4,6.664,0.16783325057925788,0.08391662528962894
+Acala,Yarn evenness CV (%),AC107Neg,yarn_evenness_cv_pct,4,22.85,0.5960984258772473,0.29804921293862363
+Acala,Hairiness,AC107Neg,yarn_hairiness,4,4.296250000000001,0.13281409312770004,0.06640704656385002
+Acala,Neps (+200%),AC107Neg,yarn_neps_200,4,506.25,96.72771061076551,48.36385530538276
+Acala,Single-end tenacity (cN/tex),AC107Neg,yarn_tenacity_cn_tex,4,15.494250000000001,1.117683728371612,0.558841864185806
+Acala,Thick places (+50%),AC107Neg,yarn_thick_50,4,1297.5,224.51800224777818,112.25900112388909
+Acala,Thin places (-50%),AC107Neg,yarn_thin_50,4,447.5,110.26483271348728,55.13241635674364
+Acala,Normalized skein strength (mN/tex),AC107Pos,skein_mn_tex,4,62.740370522184094,4.839617880998295,2.4198089404991476
+Acala,Single-end elongation (%),AC107Pos,yarn_elongation_pct,4,6.4235,0.2900005747120742,0.1450002873560371
+Acala,Yarn evenness CV (%),AC107Pos,yarn_evenness_cv_pct,4,25.197499999999998,1.5980900058090182,0.7990450029045091
+Acala,Hairiness,AC107Pos,yarn_hairiness,4,4.3675,0.25134637455113623,0.12567318727556812
+Acala,Neps (+200%),AC107Pos,yarn_neps_200,4,716.25,226.98660019187622,113.49330009593811
+Acala,Single-end tenacity (cN/tex),AC107Pos,yarn_tenacity_cn_tex,4,15.036999999999999,0.5492928787693016,0.2746464393846508
+Acala,Thick places (+50%),AC107Pos,yarn_thick_50,4,1797.5,334.52702930156977,167.26351465078488
+Acala,Thin places (-50%),AC107Pos,yarn_thin_50,4,750,311.3679495388053,155.68397476940265
+Acala,Normalized skein strength (mN/tex),AC164Neg,skein_mn_tex,4,66.99018322638366,5.4406666453848285,2.7203333226924142
+Acala,Single-end elongation (%),AC164Neg,yarn_elongation_pct,4,6.509,0.5473743386994557,0.27368716934972787
+Acala,Yarn evenness CV (%),AC164Neg,yarn_evenness_cv_pct,4,23.755,3.181430495861885,1.5907152479309425
+Acala,Hairiness,AC164Neg,yarn_hairiness,4,4.4350000000000005,0.2593903107930851,0.12969515539654256
+Acala,Neps (+200%),AC164Neg,yarn_neps_200,4,668.75,432.32655481707343,216.16327740853671
+Acala,Single-end tenacity (cN/tex),AC164Neg,yarn_tenacity_cn_tex,4,15.1705,2.1593575433447794,1.0796787716723897
+Acala,Thick places (+50%),AC164Neg,yarn_thick_50,4,1577.5,774.6020483663424,387.3010241831712
+Acala,Thin places (-50%),AC164Neg,yarn_thin_50,4,716.25,462.4819816309965,231.24099081549824
+Acala,Normalized skein strength (mN/tex),AC164Pos,skein_mn_tex,4,66.5167527294104,4.604049965272778,2.302024982636389
+Acala,Single-end elongation (%),AC164Pos,yarn_elongation_pct,4,6.5245,0.2979546945426435,0.14897734727132175
+Acala,Yarn evenness CV (%),AC164Pos,yarn_evenness_cv_pct,4,22.3175,1.1438713505751716,0.5719356752875858
+Acala,Hairiness,AC164Pos,yarn_hairiness,4,4.202500000000001,0.1548386256720203,0.07741931283601015
+Acala,Neps (+200%),AC164Pos,yarn_neps_200,4,468.75,93.30728803260762,46.65364401630381
+Acala,Single-end tenacity (cN/tex),AC164Pos,yarn_tenacity_cn_tex,4,16.9705,2.033485103625465,1.0167425518127324
+Acala,Thick places (+50%),AC164Pos,yarn_thick_50,4,1206.25,237.04342077630702,118.52171038815351
+Acala,Thin places (-50%),AC164Pos,yarn_thin_50,4,375,108.24355254086345,54.121776270431724
+Acala,Normalized skein strength (mN/tex),ACSJ4,skein_mn_tex,4,70.46468679195026,2.785217927764134,1.392608963882067
+Acala,Single-end elongation (%),ACSJ4,yarn_elongation_pct,4,6.726,0.40900448245302473,0.20450224122651237
+Acala,Yarn evenness CV (%),ACSJ4,yarn_evenness_cv_pct,4,22.310000000000002,0.6677449612938552,0.3338724806469276
+Acala,Hairiness,ACSJ4,yarn_hairiness,4,4.2225,0.1847746375092282,0.0923873187546141
+Acala,Neps (+200%),ACSJ4,yarn_neps_200,4,475,108.08946911393974,54.04473455696987
+Acala,Single-end tenacity (cN/tex),ACSJ4,yarn_tenacity_cn_tex,4,15.212250000000001,0.41572937912380786,0.20786468956190393
+Acala,Thick places (+50%),ACSJ4,yarn_thick_50,4,1131.25,167.59947295064305,83.79973647532152
+Acala,Thin places (-50%),ACSJ4,yarn_thin_50,4,443.75,77.06869230325199,38.534346151625996
+Acala,Normalized skein strength (mN/tex),SL883,skein_mn_tex,4,69.11173059774337,1.7725236629958836,0.8862618314979418
+Acala,Single-end elongation (%),SL883,yarn_elongation_pct,4,6.50275,0.0979093968932502,0.0489546984466251
+Acala,Yarn evenness CV (%),SL883,yarn_evenness_cv_pct,4,22.92625,1.0799797451804358,0.5399898725902179
+Acala,Hairiness,SL883,yarn_hairiness,4,4.1475,0.16291613384397094,0.08145806692198547
+Acala,Neps (+200%),SL883,yarn_neps_200,4,430,143.75905768565218,71.87952884282609
+Acala,Single-end tenacity (cN/tex),SL883,yarn_tenacity_cn_tex,4,16.28475,0.9608272043747857,0.4804136021873929
+Acala,Thick places (+50%),SL883,yarn_thick_50,4,1223.75,248.80966621094126,124.40483310547063
+Acala,Thin places (-50%),SL883,yarn_thin_50,4,462.5,140.5643387681717,70.28216938408585
+Deltapine,Normalized skein strength (mN/tex),DP213Neg,skein_mn_tex,4,59.88469293092544,5.851453313499448,2.925726656749724
+Deltapine,Single-end elongation (%),DP213Neg,yarn_elongation_pct,4,6.30425,0.10801041616436803,0.054005208082184016
+Deltapine,Yarn evenness CV (%),DP213Neg,yarn_evenness_cv_pct,4,24.27,1.90489282288182,0.95244641144091
+Deltapine,Hairiness,DP213Neg,yarn_hairiness,4,4.66125,0.15358900785320978,0.07679450392660489
+Deltapine,Neps (+200%),DP213Neg,yarn_neps_200,4,532.5,121.2091855705114,60.6045927852557
+Deltapine,Single-end tenacity (cN/tex),DP213Neg,yarn_tenacity_cn_tex,4,14.07125,0.648779045592565,0.3243895227962825
+Deltapine,Thick places (+50%),DP213Neg,yarn_thick_50,4,1566.25,315.3668498748719,157.68342493743594
+Deltapine,Thin places (-50%),DP213Neg,yarn_thin_50,4,788.75,448.00251115367644,224.00125557683822
+Deltapine,Normalized skein strength (mN/tex),DP213Pos,skein_mn_tex,4,68.65487154173836,1.841278316721068,0.920639158360534
+Deltapine,Single-end elongation (%),DP213Pos,yarn_elongation_pct,4,6.69225,0.23785342124930645,0.11892671062465322
+Deltapine,Yarn evenness CV (%),DP213Pos,yarn_evenness_cv_pct,4,23.46875,2.270632712850466,1.135316356425233
+Deltapine,Hairiness,DP213Pos,yarn_hairiness,4,4.28125,0.19375134408135955,0.096875672040679775
+Deltapine,Neps (+200%),DP213Pos,yarn_neps_200,4,780,416.95323478778766,208.47661739389383
+Deltapine,Single-end tenacity (cN/tex),DP213Pos,yarn_tenacity_cn_tex,4,16.5055,0.7842153190716606,0.3921076595358303
+Deltapine,Thick places (+50%),DP213Pos,yarn_thick_50,4,1472.5,541.0098581973037,270.50492909865187
+Deltapine,Thin places (-50%),DP213Pos,yarn_thin_50,4,475,290.1149197588202,145.0574598794101
+Deltapine,Normalized skein strength (mN/tex),DP263Neg,skein_mn_tex,4,69.78905479961833,8.153800121465014,4.076900060732507
+Deltapine,Single-end elongation (%),DP263Neg,yarn_elongation_pct,4,6.72675,0.21078484290859223,0.10539242145429611
+Deltapine,Yarn evenness CV (%),DP263Neg,yarn_evenness_cv_pct,4,21.247500000000002,0.06075908711186042,0.03037954355593021
+Deltapine,Hairiness,DP263Neg,yarn_hairiness,4,4.15625,0.1171448533511681,0.05857242667558405
+Deltapine,Neps (+200%),DP263Neg,yarn_neps_200,4,251.25,60.878978309429606,30.439489154714803
+Deltapine,Single-end tenacity (cN/tex),DP263Neg,yarn_tenacity_cn_tex,4,15.27875,1.1487516050043194,0.5743758025021597
+Deltapine,Thick places (+50%),DP263Neg,yarn_thick_50,4,960,119.44315244779278,59.72157622389639
+Deltapine,Thin places (-50%),DP263Neg,yarn_thin_50,4,301.25,27.801378862687127,13.900689431343563
+Deltapine,Normalized skein strength (mN/tex),DP263Pos,skein_mn_tex,4,61.65359791873722,3.721379734527708,1.860689867263854
+Deltapine,Single-end elongation (%),DP263Pos,yarn_elongation_pct,4,7.02325,0.23696325312869398,0.11848162656434699
+Deltapine,Yarn evenness CV (%),DP263Pos,yarn_evenness_cv_pct,4,23.259999999999998,1.640868672380578,0.820434336190289
+Deltapine,Hairiness,DP263Pos,yarn_hairiness,4,4.2475000000000005,0.30103986446980735,0.15051993223490368
+Deltapine,Neps (+200%),DP263Pos,yarn_neps_200,4,426.25,144.6475601822121,72.32378009110604
+Deltapine,Single-end tenacity (cN/tex),DP263Pos,yarn_tenacity_cn_tex,4,15.10125,0.3249270430932657,0.16246352154663285
+Deltapine,Thick places (+50%),DP263Pos,yarn_thick_50,4,1297.5,320.01302056843457,160.00651028421728
+Deltapine,Thin places (-50%),DP263Pos,yarn_thin_50,4,628.75,259.6913231768311,129.84566158841554
+Deltapine,Normalized skein strength (mN/tex),DP50,skein_mn_tex,4,51.20770510830387,4.927021118984304,2.463510559492152
+Deltapine,Single-end elongation (%),DP50,yarn_elongation_pct,4,6.39675,0.212256723489897,0.1061283617449485
+Deltapine,Yarn evenness CV (%),DP50,yarn_evenness_cv_pct,4,24.57875,3.027811021733908,1.513905510866954
+Deltapine,Hairiness,DP50,yarn_hairiness,4,4.76375,0.3290485019972994,0.1645242509986497
+Deltapine,Neps (+200%),DP50,yarn_neps_200,4,613.75,271.85703963664434,135.92851981832217
+Deltapine,Single-end tenacity (cN/tex),DP50,yarn_tenacity_cn_tex,4,12.191500000000001,0.566048584487233,0.2830242922436165
+Deltapine,Thick places (+50%),DP50,yarn_thick_50,4,1611.25,625.1449831839011,312.57249159195055
+Deltapine,Thin places (-50%),DP50,yarn_thin_50,4,1028.75,584.4851723240433,292.24258616202167
+Deltapine,Normalized skein strength (mN/tex),SL883,skein_mn_tex,4,69.11173059774337,1.7725236629958836,0.8862618314979418
+Deltapine,Single-end elongation (%),SL883,yarn_elongation_pct,4,6.50275,0.0979093968932502,0.0489546984466251
+Deltapine,Yarn evenness CV (%),SL883,yarn_evenness_cv_pct,4,22.92625,1.0799797451804358,0.5399898725902179
+Deltapine,Hairiness,SL883,yarn_hairiness,4,4.1475,0.16291613384397094,0.08145806692198547
+Deltapine,Neps (+200%),SL883,yarn_neps_200,4,430,143.75905768565218,71.87952884282609
+Deltapine,Single-end tenacity (cN/tex),SL883,yarn_tenacity_cn_tex,4,16.28475,0.9608272043747857,0.4804136021873929
+Deltapine,Thick places (+50%),SL883,yarn_thick_50,4,1223.75,248.80966621094126,124.40483310547063
+Deltapine,Thin places (-50%),SL883,yarn_thin_50,4,462.5,140.5643387681717,70.28216938408585
+Georgia,Normalized skein strength (mN/tex),GA089,skein_mn_tex,4,64.22730666634543,8.571066941895248,4.285533470947624
+Georgia,Single-end elongation (%),GA089,yarn_elongation_pct,4,6.8465,0.17534442296995584,0.08767221148497792
+Georgia,Yarn evenness CV (%),GA089,yarn_evenness_cv_pct,4,22.3525,1.0214409756156577,0.5107204878078289
+Georgia,Hairiness,GA089,yarn_hairiness,4,4.265000000000001,0.09055385138137394,0.04527692569068697
+Georgia,Neps (+200%),GA089,yarn_neps_200,4,492.5,235.60206563893564,117.80103281946782
+Georgia,Single-end tenacity (cN/tex),GA089,yarn_tenacity_cn_tex,4,15.04675,0.9492707288580365,0.47463536442901827
+Georgia,Thick places (+50%),GA089,yarn_thick_50,4,1156.25,291.0433816461044,145.5216908230522
+Georgia,Thin places (-50%),GA089,yarn_thin_50,4,445,90.64583093924765,45.32291546962382
+Georgia,Normalized skein strength (mN/tex),GA428Neg,skein_mn_tex,4,64.09130068675668,4.4854545792695335,2.2427272896347668
+Georgia,Single-end elongation (%),GA428Neg,yarn_elongation_pct,4,6.89925,0.3066217811354353,0.15331089056771766
+Georgia,Yarn evenness CV (%),GA428Neg,yarn_evenness_cv_pct,4,22.1175,0.7005295615937042,0.3502647807968521
+Georgia,Hairiness,GA428Neg,yarn_hairiness,4,4.29375,0.21952125941086711,0.10976062970543356
+Georgia,Neps (+200%),GA428Neg,yarn_neps_200,4,408.75,121.47530613256342,60.73765306628171
+Georgia,Single-end tenacity (cN/tex),GA428Neg,yarn_tenacity_cn_tex,4,14.4,0.9325431178592579,0.46627155892962896
+Georgia,Thick places (+50%),GA428Neg,yarn_thick_50,4,1140,159.2691642053372,79.6345821026686
+Georgia,Thin places (-50%),GA428Neg,yarn_thin_50,4,460,133.47908700117284,66.73954350058642
+Georgia,Normalized skein strength (mN/tex),GA428Pos,skein_mn_tex,4,66.97891327021497,5.118238128337221,2.5591190641686103
+Georgia,Single-end elongation (%),GA428Pos,yarn_elongation_pct,4,7.0865,0.26613342518368494,0.13306671259184247
+Georgia,Yarn evenness CV (%),GA428Pos,yarn_evenness_cv_pct,4,21.835,0.8933364427806577,0.44666822139032886
+Georgia,Hairiness,GA428Pos,yarn_hairiness,4,4.24,0.3631574497836075,0.18157872489180374
+Georgia,Neps (+200%),GA428Pos,yarn_neps_200,4,401.25,115.28045512285824,57.64022756142912
+Georgia,Single-end tenacity (cN/tex),GA428Pos,yarn_tenacity_cn_tex,4,15.9765,0.7868970707786374,0.3934485353893187
+Georgia,Thick places (+50%),GA428Pos,yarn_thick_50,4,1060,315.17191076194166,157.58595538097083
+Georgia,Thin places (-50%),GA428Pos,yarn_thin_50,4,330,102.22524150130437,51.112620750652184
+Georgia,Normalized skein strength (mN/tex),GA437Neg,skein_mn_tex,4,66.36869903524267,7.01009402938838,3.50504701469419
+Georgia,Single-end elongation (%),GA437Neg,yarn_elongation_pct,4,6.6964999999999995,0.131758617681476,0.065879308840738
+Georgia,Yarn evenness CV (%),GA437Neg,yarn_evenness_cv_pct,4,22.97625,0.740274442352294,0.370137221176147
+Georgia,Hairiness,GA437Neg,yarn_hairiness,4,4.3275,0.24001736048322292,0.12000868024161146
+Georgia,Neps (+200%),GA437Neg,yarn_neps_200,4,566.25,115.78536176909411,57.892680884547055
+Georgia,Single-end tenacity (cN/tex),GA437Neg,yarn_tenacity_cn_tex,4,15.138,1.0410574751984956,0.5205287375992478
+Georgia,Thick places (+50%),GA437Neg,yarn_thick_50,4,1403.75,272.89726394133504,136.44863197066752
+Georgia,Thin places (-50%),GA437Neg,yarn_thin_50,4,487.5,260.3363209388963,130.16816046944814
+Georgia,Normalized skein strength (mN/tex),GA437Pos,skein_mn_tex,4,66.70685211857588,5.906216847881393,2.9531084239406966
+Georgia,Single-end elongation (%),GA437Pos,yarn_elongation_pct,4,6.52975,0.19622839583845497,0.09811419791922749
+Georgia,Yarn evenness CV (%),GA437Pos,yarn_evenness_cv_pct,4,23.01875,0.6874393912678178,0.3437196956339089
+Georgia,Hairiness,GA437Pos,yarn_hairiness,4,4.19625,0.28128796040119913,0.14064398020059957
+Georgia,Neps (+200%),GA437Pos,yarn_neps_200,4,442.5,128.93796958227628,64.46898479113814
+Georgia,Single-end tenacity (cN/tex),GA437Pos,yarn_tenacity_cn_tex,4,14.787749999999999,0.1821398272390377,0.09106991361951886
+Georgia,Thick places (+50%),GA437Pos,yarn_thick_50,4,1348.75,211.5567299804003,105.77836499020015
+Georgia,Thin places (-50%),GA437Pos,yarn_thin_50,4,518.75,120.8563196527182,60.4281598263591
+Georgia,Normalized skein strength (mN/tex),SL883,skein_mn_tex,4,69.11173059774337,1.7725236629958836,0.8862618314979418
+Georgia,Single-end elongation (%),SL883,yarn_elongation_pct,4,6.50275,0.0979093968932502,0.0489546984466251
+Georgia,Yarn evenness CV (%),SL883,yarn_evenness_cv_pct,4,22.92625,1.0799797451804358,0.5399898725902179
+Georgia,Hairiness,SL883,yarn_hairiness,4,4.1475,0.16291613384397094,0.08145806692198547
+Georgia,Neps (+200%),SL883,yarn_neps_200,4,430,143.75905768565218,71.87952884282609
+Georgia,Single-end tenacity (cN/tex),SL883,yarn_tenacity_cn_tex,4,16.28475,0.9608272043747857,0.4804136021873929
+Georgia,Thick places (+50%),SL883,yarn_thick_50,4,1223.75,248.80966621094126,124.40483310547063
+Georgia,Thin places (-50%),SL883,yarn_thin_50,4,462.5,140.5643387681717,70.28216938408585
+Paymaster,Normalized skein strength (mN/tex),PM304Neg,skein_mn_tex,4,69.51659036349494,6.649545057095582,3.324772528547791
+Paymaster,Single-end elongation (%),PM304Neg,yarn_elongation_pct,4,6.5767500000000005,0.19207355361944026,0.09603677680972013
+Paymaster,Yarn evenness CV (%),PM304Neg,yarn_evenness_cv_pct,4,22.53625,0.20315736921575442,0.10157868460787721
+Paymaster,Hairiness,PM304Neg,yarn_hairiness,4,4.03125,0.09437293044088432,0.04718646522044216
+Paymaster,Neps (+200%),PM304Neg,yarn_neps_200,4,508.75,66.12803238163575,33.064016190817874
+Paymaster,Single-end tenacity (cN/tex),PM304Neg,yarn_tenacity_cn_tex,4,16.12475,1.134119739416139,0.5670598697080695
+Paymaster,Thick places (+50%),PM304Neg,yarn_thick_50,4,1263.75,29.261749776799064,14.630874888399532
+Paymaster,Thin places (-50%),PM304Neg,yarn_thin_50,4,331.25,112.5,56.25
+Paymaster,Normalized skein strength (mN/tex),PM304Pos,skein_mn_tex,4,69.17467297899708,6.931374455417595,3.4656872277087976
+Paymaster,Single-end elongation (%),PM304Pos,yarn_elongation_pct,4,6.72525,0.07613310712167239,0.03806655356083619
+Paymaster,Yarn evenness CV (%),PM304Pos,yarn_evenness_cv_pct,4,22.6875,1.759419885454673,0.8797099427273365
+Paymaster,Hairiness,PM304Pos,yarn_hairiness,4,4.0600000000000005,0.143061758225833,0.0715308791129165
+Paymaster,Neps (+200%),PM304Pos,yarn_neps_200,4,563.75,211.24137063242765,105.62068531621382
+Paymaster,Single-end tenacity (cN/tex),PM304Pos,yarn_tenacity_cn_tex,4,16.15,0.511917311031121,0.2559586555155605
+Paymaster,Thick places (+50%),PM304Pos,yarn_thick_50,4,1357.5,362.1808940294891,181.09044701474454
+Paymaster,Thin places (-50%),PM304Pos,yarn_thin_50,4,363.75,214.9563909261597,107.47819546307986
+Paymaster,Normalized skein strength (mN/tex),PM321Neg,skein_mn_tex,4,69.52318421722583,8.671663386543353,4.335831693271676
+Paymaster,Single-end elongation (%),PM321Neg,yarn_elongation_pct,4,6.861000000000001,0.3827662472057848,0.1913831236028924
+Paymaster,Yarn evenness CV (%),PM321Neg,yarn_evenness_cv_pct,4,22.10875,2.2387287129082885,1.1193643564541442
+Paymaster,Hairiness,PM321Neg,yarn_hairiness,4,4.12625,0.1533174810646195,0.07665874053230975
+Paymaster,Neps (+200%),PM321Neg,yarn_neps_200,4,555,259.61509971494337,129.80754985747168
+Paymaster,Single-end tenacity (cN/tex),PM321Neg,yarn_tenacity_cn_tex,4,15.878499999999999,1.4113007002997864,0.7056503501498932
+Paymaster,Thick places (+50%),PM321Neg,yarn_thick_50,4,1188.75,557.619568642756,278.809784321378
+Paymaster,Thin places (-50%),PM321Neg,yarn_thin_50,4,398.75,295.81455339452117,147.90727669726058
+Paymaster,Normalized skein strength (mN/tex),PM321Pos,skein_mn_tex,4,69.32793720386485,9.188130729687623,4.594065364843812
+Paymaster,Single-end elongation (%),PM321Pos,yarn_elongation_pct,4,6.739,0.22784351354968754,0.11392175677484377
+Paymaster,Yarn evenness CV (%),PM321Pos,yarn_evenness_cv_pct,4,21.8975,0.9666479883252916,0.4833239941626458
+Paymaster,Hairiness,PM321Pos,yarn_hairiness,4,4.08875,0.12188621743248913,0.060943108716244566
+Paymaster,Neps (+200%),PM321Pos,yarn_neps_200,4,497.5,133.32291625973383,66.66145812986692
+Paymaster,Single-end tenacity (cN/tex),PM321Pos,yarn_tenacity_cn_tex,4,16.655,1.4285202133676644,0.7142601066838322
+Paymaster,Thick places (+50%),PM321Pos,yarn_thick_50,4,1157.5,236.37893307145626,118.18946653572813
+Paymaster,Thin places (-50%),PM321Pos,yarn_thin_50,4,296.25,85.18362518700411,42.591812593502056
+Paymaster,Normalized skein strength (mN/tex),PMHS26,skein_mn_tex,4,60.99192893143094,2.7522358949956387,1.3761179474978193
+Paymaster,Single-end elongation (%),PMHS26,yarn_elongation_pct,4,6.37275,0.216231935661687,0.1081159678308435
+Paymaster,Yarn evenness CV (%),PMHS26,yarn_evenness_cv_pct,4,24.41375,2.4273798459793365,1.2136899229896683
+Paymaster,Hairiness,PMHS26,yarn_hairiness,4,4.47375,0.2988415131804816,0.1494207565902408
+Paymaster,Neps (+200%),PMHS26,yarn_neps_200,4,523.75,194.78085977152205,97.39042988576102
+Paymaster,Single-end tenacity (cN/tex),PMHS26,yarn_tenacity_cn_tex,4,14.09225,0.5935303277845205,0.29676516389226026
+Paymaster,Thick places (+50%),PMHS26,yarn_thick_50,4,1593.75,677.9426598171855,338.97132990859274
+Paymaster,Thin places (-50%),PMHS26,yarn_thin_50,4,882.5,666.0142641115128,333.0071320557564
+Paymaster,Normalized skein strength (mN/tex),SL883,skein_mn_tex,4,69.11173059774337,1.7725236629958836,0.8862618314979418
+Paymaster,Single-end elongation (%),SL883,yarn_elongation_pct,4,6.50275,0.0979093968932502,0.0489546984466251
+Paymaster,Yarn evenness CV (%),SL883,yarn_evenness_cv_pct,4,22.92625,1.0799797451804358,0.5399898725902179
+Paymaster,Hairiness,SL883,yarn_hairiness,4,4.1475,0.16291613384397094,0.08145806692198547
+Paymaster,Neps (+200%),SL883,yarn_neps_200,4,430,143.75905768565218,71.87952884282609
+Paymaster,Single-end tenacity (cN/tex),SL883,yarn_tenacity_cn_tex,4,16.28475,0.9608272043747857,0.4804136021873929
+Paymaster,Thick places (+50%),SL883,yarn_thick_50,4,1223.75,248.80966621094126,124.40483310547063
+Paymaster,Thin places (-50%),SL883,yarn_thin_50,4,462.5,140.5643387681717,70.28216938408585

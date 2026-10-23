@@ -1,0 +1,9 @@
+trait,trait_label,pair_tests,nominal_p_lt_0_05,fdr_lt_0_05,positive_direction,negative_direction
+skein_mn_tex,Normalized skein strength (mN/tex),8,2,0,3,5
+yarn_elongation_pct,Single-end elongation (%),8,1,0,5,3
+yarn_evenness_cv_pct,Yarn evenness CV (%),8,0,0,4,4
+yarn_hairiness,Hairiness,8,1,0,3,5
+yarn_neps_200,Neps (+200%),8,0,0,4,4
+yarn_tenacity_cn_tex,Single-end tenacity (cN/tex),8,2,1,5,3
+yarn_thick_50,Thick places (+50%),8,0,0,3,5
+yarn_thin_50,Thin places (-50%),8,1,0,4,4

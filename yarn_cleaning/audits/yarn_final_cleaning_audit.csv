@@ -1,0 +1,14 @@
+check,result
+Validated sample-key rows,92
+Cross-reference rows,92
+Sample-level skein rows,92
+Sample-level Average Yarn rows,92
+Processing rows,92
+Final sample-level rows,92
+Package-level rows,184
+Expected package-level rows,184
+Individual break rows,3680
+Expected individual break rows,3680
+Packages with non-20 break counts,0
+Unmatched sample-level yarn records,0
+Unmatched break records,0

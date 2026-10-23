@@ -1,0 +1,33 @@
+background,trait,n,fitted,message,trait_label
+Acala,skein_mn_tex,24,TRUE,,Normalized skein strength (mN/tex)
+Acala,yarn_tenacity_cn_tex,24,TRUE,,Single-end tenacity (cN/tex)
+Acala,yarn_elongation_pct,24,TRUE,,Single-end elongation (%)
+Acala,yarn_evenness_cv_pct,24,TRUE,,Yarn evenness CV (%)
+Acala,yarn_thin_50,24,TRUE,,Thin places (-50%)
+Acala,yarn_thick_50,24,TRUE,,Thick places (+50%)
+Acala,yarn_neps_200,24,TRUE,,Neps (+200%)
+Acala,yarn_hairiness,24,TRUE,,Hairiness
+Deltapine,skein_mn_tex,24,TRUE,,Normalized skein strength (mN/tex)
+Deltapine,yarn_tenacity_cn_tex,24,TRUE,,Single-end tenacity (cN/tex)
+Deltapine,yarn_elongation_pct,24,TRUE,,Single-end elongation (%)
+Deltapine,yarn_evenness_cv_pct,24,TRUE,,Yarn evenness CV (%)
+Deltapine,yarn_thin_50,24,TRUE,,Thin places (-50%)
+Deltapine,yarn_thick_50,24,TRUE,,Thick places (+50%)
+Deltapine,yarn_neps_200,24,TRUE,,Neps (+200%)
+Deltapine,yarn_hairiness,24,TRUE,,Hairiness
+Georgia,skein_mn_tex,24,TRUE,,Normalized skein strength (mN/tex)
+Georgia,yarn_tenacity_cn_tex,24,TRUE,,Single-end tenacity (cN/tex)
+Georgia,yarn_elongation_pct,24,TRUE,,Single-end elongation (%)
+Georgia,yarn_evenness_cv_pct,24,TRUE,,Yarn evenness CV (%)
+Georgia,yarn_thin_50,24,TRUE,,Thin places (-50%)
+Georgia,yarn_thick_50,24,TRUE,,Thick places (+50%)
+Georgia,yarn_neps_200,24,TRUE,,Neps (+200%)
+Georgia,yarn_hairiness,24,TRUE,,Hairiness
+Paymaster,skein_mn_tex,24,TRUE,,Normalized skein strength (mN/tex)
+Paymaster,yarn_tenacity_cn_tex,24,TRUE,,Single-end tenacity (cN/tex)
+Paymaster,yarn_elongation_pct,24,TRUE,,Single-end elongation (%)
+Paymaster,yarn_evenness_cv_pct,24,TRUE,,Yarn evenness CV (%)
+Paymaster,yarn_thin_50,24,TRUE,,Thin places (-50%)
+Paymaster,yarn_thick_50,24,TRUE,,Thick places (+50%)
+Paymaster,yarn_neps_200,24,TRUE,,Neps (+200%)
+Paymaster,yarn_hairiness,24,TRUE,,Hairiness
