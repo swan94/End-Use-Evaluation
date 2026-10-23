@@ -1,0 +1,14 @@
+trait_label,n_stages,n_field_samples
+Fineness,4,64
+IFC,4,64
+L_n,4,64
+L_n_CV,4,64
+L_w,4,64
+L_w_CV,4,64
+L5_n,4,64
+Maturity_ratio,4,64
+Nep_count,4,64
+Nep_size,4,64
+SFC_n,4,64
+SFC_w,4,64
+UQL_w,4,64

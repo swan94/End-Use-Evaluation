@@ -1,0 +1,12 @@
+check,result
+Traits requested,13
+Primary models successfully fitted,13
+Primary models failed,0
+Primary singular model fits,1
+Nep_count sensitivity model singular,FALSE
+Incomplete sample-trait combinations,0
+Type III result rows,104
+QTL-by-stage contrast rows,52
+Background-specific contrast rows,208
+Stage-within-QTL contrast rows,156
+Residual observations above |3 SD|,22

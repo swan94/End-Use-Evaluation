@@ -1,0 +1,81 @@
+fiber_trait,yarn_trait,n,r,p_value,fdr_p,fiber_label,yarn_label,significance
+hvi_microgin_UHML,yarn_tenacity_cn_tex,64,0.519429233492872,1.0920834445587422e-5,2.7302086113968553e-5,Microgin HVI UHML,Single-end tenacity,***
+afis_microgin_UQLw,yarn_tenacity_cn_tex,64,0.5117540424663723,1.5460557279671185e-5,3.092111455934237e-5,Microgin AFIS UQL(w),Single-end tenacity,***
+afis_microgin_L5,yarn_tenacity_cn_tex,64,0.5273086794103798,7.575502512184283e-6,2.7302086113968553e-5,Microgin AFIS L5,Single-end tenacity,***
+fibrogram_microgin_UHMLf,yarn_tenacity_cn_tex,64,0.5199803419555964,1.064815287028563e-5,2.7302086113968553e-5,Microgin fibrogram UHML,Single-end tenacity,***
+fibrogram_microgin_UQLf,yarn_tenacity_cn_tex,64,0.5052880806413874,2.0587789803912654e-5,3.431298300652109e-5,Microgin fibrogram UQL,Single-end tenacity,***
+hvi_classing_UHML,yarn_tenacity_cn_tex,64,0.38000294368509435,0.0019536766077243696,0.0027909665824633854,Classing HVI UHML,Single-end tenacity,**
+afis_microgin_Lw,yarn_tenacity_cn_tex,64,0.5337408666744309,5.581657860605036e-6,2.7302086113968553e-5,Microgin AFIS L(w),Single-end tenacity,***
+afis_microgin_Ln,yarn_tenacity_cn_tex,64,0.3689573925303685,0.002698856304544952,0.00337357038068119,Microgin AFIS L(n),Single-end tenacity,**
+afis_microgin_SFCn,yarn_tenacity_cn_tex,64,-0.08741993442317784,0.4921505092768087,0.4921505092768087,Microgin AFIS SFC(n),Single-end tenacity,
+fibrogram_microgin_SFCf,yarn_tenacity_cn_tex,64,-0.22178173486974184,0.07818913972966504,0.08687682192185005,Microgin fibrogram SFC,Single-end tenacity,
+hvi_microgin_UHML,skein_mn_tex,64,0.2619019826770592,0.036567206998888706,0.05223886714126958,Microgin HVI UHML,Skein strength,
+afis_microgin_UQLw,skein_mn_tex,64,0.2681646714675429,0.032157711640298015,0.05223886714126958,Microgin AFIS UQL(w),Skein strength,
+afis_microgin_L5,skein_mn_tex,64,0.2910887258577398,0.01961701225351416,0.03923402450702832,Microgin AFIS L5,Skein strength,*
+fibrogram_microgin_UHMLf,skein_mn_tex,64,0.32317295113452077,0.009194734834428463,0.024649421267535467,Microgin fibrogram UHML,Skein strength,*
+fibrogram_microgin_UQLf,skein_mn_tex,64,0.32035230632569606,0.009859768507014187,0.024649421267535467,Microgin fibrogram UQL,Skein strength,*
+hvi_classing_UHML,skein_mn_tex,64,0.09026272953796795,0.47812612290643286,0.47812612290643286,Classing HVI UHML,Skein strength,
+afis_microgin_Lw,skein_mn_tex,64,0.3726285432595015,0.002427030960462863,0.02427030960462863,Microgin AFIS L(w),Skein strength,*
+afis_microgin_Ln,skein_mn_tex,64,0.3242976424437014,0.008940659145262023,0.024649421267535467,Microgin AFIS L(n),Skein strength,*
+afis_microgin_SFCn,skein_mn_tex,64,-0.19940126243340642,0.11418038452834314,0.14272548066042892,Microgin AFIS SFC(n),Skein strength,
+fibrogram_microgin_SFCf,skein_mn_tex,64,-0.17612130966051703,0.16388919667969312,0.18209910742188126,Microgin fibrogram SFC,Skein strength,
+hvi_microgin_UHML,yarn_elongation_pct,64,0.03920161800434826,0.7584246744263983,0.9670802568785062,Microgin HVI UHML,Yarn elongation,
+afis_microgin_UQLw,yarn_elongation_pct,64,-0.04250422089096191,0.7387699184414834,0.9670802568785062,Microgin AFIS UQL(w),Yarn elongation,
+afis_microgin_L5,yarn_elongation_pct,64,-0.029501946178285294,0.8169930113151169,0.9670802568785062,Microgin AFIS L5,Yarn elongation,
+fibrogram_microgin_UHMLf,yarn_elongation_pct,64,0.008968095853903596,0.9439293163634717,0.9670802568785062,Microgin fibrogram UHML,Yarn elongation,
+fibrogram_microgin_UQLf,yarn_elongation_pct,64,0.005262497513431418,0.9670802568785062,0.9670802568785062,Microgin fibrogram UQL,Yarn elongation,
+hvi_classing_UHML,yarn_elongation_pct,64,-0.03882645527351944,0.7606673069252355,0.9670802568785062,Classing HVI UHML,Yarn elongation,
+afis_microgin_Lw,yarn_elongation_pct,64,0.035439153431187656,0.7810025831215097,0.9670802568785062,Microgin AFIS L(w),Yarn elongation,
+afis_microgin_Ln,yarn_elongation_pct,64,0.04023553117911548,0.7522544957121657,0.9670802568785062,Microgin AFIS L(n),Yarn elongation,
+afis_microgin_SFCn,yarn_elongation_pct,64,-0.06628009491346588,0.6028106447543546,0.9670802568785062,Microgin AFIS SFC(n),Yarn elongation,
+fibrogram_microgin_SFCf,yarn_elongation_pct,64,-0.30855364940221425,0.0131150259995627,0.13115025999562702,Microgin fibrogram SFC,Yarn elongation,
+hvi_microgin_UHML,yarn_evenness_cv_pct,64,-0.0469025510220622,0.7128525299574611,0.8582471508719947,Microgin HVI UHML,Evenness CV,
+afis_microgin_UQLw,yarn_evenness_cv_pct,64,0.052610486552218866,0.6796983818728092,0.8582471508719947,Microgin AFIS UQL(w),Evenness CV,
+afis_microgin_L5,yarn_evenness_cv_pct,64,0.022771661085113838,0.8582471508719947,0.8582471508719947,Microgin AFIS L5,Evenness CV,
+fibrogram_microgin_UHMLf,yarn_evenness_cv_pct,64,-0.04504121356326191,0.7237830832793424,0.8582471508719947,Microgin fibrogram UHML,Evenness CV,
+fibrogram_microgin_UQLf,yarn_evenness_cv_pct,64,-0.031120053582836867,0.8071435242328675,0.8582471508719947,Microgin fibrogram UQL,Evenness CV,
+hvi_classing_UHML,yarn_evenness_cv_pct,64,0.23824260829763416,0.05799010755914093,0.5799010755914092,Classing HVI UHML,Evenness CV,
+afis_microgin_Lw,yarn_evenness_cv_pct,64,-0.048852953985794166,0.7014603838533803,0.8582471508719947,Microgin AFIS L(w),Evenness CV,
+afis_microgin_Ln,yarn_evenness_cv_pct,64,-0.07183520748131345,0.5726964856816366,0.8582471508719947,Microgin AFIS L(n),Evenness CV,
+afis_microgin_SFCn,yarn_evenness_cv_pct,64,0.15507431642048242,0.22111778098657633,0.7370592699552545,Microgin AFIS SFC(n),Evenness CV,
+fibrogram_microgin_SFCf,yarn_evenness_cv_pct,64,0.1868047138039896,0.13940011666642554,0.6970005833321278,Microgin fibrogram SFC,Evenness CV,
+hvi_microgin_UHML,yarn_thin_50,64,-0.20812113327077392,0.09888588052623383,0.3134142944658761,Microgin HVI UHML,Thin places,
+afis_microgin_UQLw,yarn_thin_50,64,-0.09002327890749172,0.47929912576558054,0.5325545841839784,Microgin AFIS UQL(w),Thin places,
+afis_microgin_L5,yarn_thin_50,64,-0.12458552447504485,0.3266575215730927,0.4197117652283445,Microgin AFIS L5,Thin places,
+fibrogram_microgin_UHMLf,yarn_thin_50,64,-0.13902642928828404,0.2732443663350166,0.4197117652283445,Microgin fibrogram UHML,Thin places,
+fibrogram_microgin_UQLf,yarn_thin_50,64,-0.12227744610824617,0.33576941218267564,0.4197117652283445,Microgin fibrogram UQL,Thin places,
+hvi_classing_UHML,yarn_thin_50,64,0.062327510895131576,0.6246513835357781,0.6246513835357781,Classing HVI UHML,Thin places,
+afis_microgin_Lw,yarn_thin_50,64,-0.1948578725652213,0.12283793063975895,0.3134142944658761,Microgin AFIS L(w),Thin places,
+afis_microgin_Ln,yarn_thin_50,64,-0.1935775581979749,0.12536571778635044,0.3134142944658761,Microgin AFIS L(n),Thin places,
+afis_microgin_SFCn,yarn_thin_50,64,0.2149364521115702,0.08808276692679994,0.3134142944658761,Microgin AFIS SFC(n),Thin places,
+fibrogram_microgin_SFCf,yarn_thin_50,64,0.1554659590701522,0.2199393159725754,0.4197117652283445,Microgin fibrogram SFC,Thin places,
+hvi_microgin_UHML,yarn_thick_50,64,-0.007316594198225825,0.9542426020103626,0.9542426020103626,Microgin HVI UHML,Thick places,
+afis_microgin_UQLw,yarn_thick_50,64,0.13213757509419943,0.2979505319259869,0.7448763298149673,Microgin AFIS UQL(w),Thick places,
+afis_microgin_L5,yarn_thick_50,64,0.10087303311284936,0.4277165235062461,0.8554330470124922,Microgin AFIS L5,Thick places,
+fibrogram_microgin_UHMLf,yarn_thick_50,64,0.03272327936697039,0.7974139508473717,0.9542426020103626,Microgin fibrogram UHML,Thick places,
+fibrogram_microgin_UQLf,yarn_thick_50,64,0.03951855021241397,0.7565316730105985,0.9542426020103626,Microgin fibrogram UQL,Thick places,
+hvi_classing_UHML,yarn_thick_50,64,0.2577346490838619,0.03977122763581205,0.39771227635812045,Classing HVI UHML,Thick places,
+afis_microgin_Lw,yarn_thick_50,64,0.01335844819077295,0.9165615310712935,0.9542426020103626,Microgin AFIS L(w),Thick places,
+afis_microgin_Ln,yarn_thick_50,64,-0.04873627252366377,0.7021401023984954,0.9542426020103626,Microgin AFIS L(n),Thick places,
+afis_microgin_SFCn,yarn_thick_50,64,0.19434216656884998,0.12385140164487486,0.6192570082243744,Microgin AFIS SFC(n),Thick places,
+fibrogram_microgin_SFCf,yarn_thick_50,64,0.15837992848244709,0.21130902767705886,0.7043634255901963,Microgin fibrogram SFC,Thick places,
+hvi_microgin_UHML,yarn_neps_200,64,0.1311280196172462,0.3016897702936866,0.4148048405216989,Microgin HVI UHML,Neps +200%,
+afis_microgin_UQLw,yarn_neps_200,64,0.2267549283668372,0.0715711996075047,0.3578559980375235,Microgin AFIS UQL(w),Neps +200%,
+afis_microgin_L5,yarn_neps_200,64,0.1983874113522325,0.11607047196303384,0.3869015732101128,Microgin AFIS L5,Neps +200%,
+fibrogram_microgin_UHMLf,yarn_neps_200,64,0.14369166807428785,0.25731202553248905,0.4148048405216989,Microgin fibrogram UHML,Neps +200%,
+fibrogram_microgin_UQLf,yarn_neps_200,64,0.1512103260592014,0.2329816839488681,0.4148048405216989,Microgin fibrogram UQL,Neps +200%,
+hvi_classing_UHML,yarn_neps_200,64,0.3456492512364522,0.005150295462751232,0.05150295462751232,Classing HVI UHML,Neps +200%,
+afis_microgin_Lw,yarn_neps_200,64,0.14891282788411472,0.24024104917858524,0.4148048405216989,Microgin AFIS L(w),Neps +200%,
+afis_microgin_Ln,yarn_neps_200,64,0.11315515193559106,0.373324356469529,0.4148048405216989,Microgin AFIS L(n),Neps +200%,
+afis_microgin_SFCn,yarn_neps_200,64,0.04903735354513237,0.700386654183781,0.700386654183781,Microgin AFIS SFC(n),Neps +200%,
+fibrogram_microgin_SFCf,yarn_neps_200,64,0.11756041944016662,0.35488234382794814,0.4148048405216989,Microgin fibrogram SFC,Neps +200%,
+hvi_microgin_UHML,yarn_hairiness,64,-0.4241242659692657,4.784389742515691e-4,0.004784389742515691,Microgin HVI UHML,Hairiness,**
+afis_microgin_UQLw,yarn_hairiness,64,-0.22522931553972864,0.0735519355959823,0.09193991949497787,Microgin AFIS UQL(w),Hairiness,
+afis_microgin_L5,yarn_hairiness,64,-0.28052985257179297,0.024748850258460128,0.06187212564615032,Microgin AFIS L5,Hairiness,
+fibrogram_microgin_UHMLf,yarn_hairiness,64,-0.3173353499566726,0.010616979734245774,0.04476670840274713,Microgin fibrogram UHML,Hairiness,*
+fibrogram_microgin_UQLf,yarn_hairiness,64,-0.3075514551109684,0.013430012520824139,0.04476670840274713,Microgin fibrogram UQL,Hairiness,*
+hvi_classing_UHML,yarn_hairiness,64,-0.23759161172745458,0.058699322713650026,0.08385617530521433,Classing HVI UHML,Hairiness,
+afis_microgin_Lw,yarn_hairiness,64,-0.25986069204963197,0.03810875443134725,0.06821644754807994,Microgin AFIS L(w),Hairiness,
+afis_microgin_Ln,yarn_hairiness,64,-0.1977434104925022,0.11728345899442301,0.13031495443824778,Microgin AFIS L(n),Hairiness,
+afis_microgin_SFCn,yarn_hairiness,64,0.1197752194157058,0.34582623634463117,0.34582623634463117,Microgin AFIS SFC(n),Hairiness,
+fibrogram_microgin_SFCf,yarn_hairiness,64,0.2562960364557322,0.04092986852884797,0.06821644754807994,Microgin fibrogram SFC,Hairiness,
