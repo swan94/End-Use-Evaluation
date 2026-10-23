@@ -1,0 +1,20 @@
+check,observed,expected,status
+Master sample-key rows,92,92,PASS
+Unique field-sample IDs,92,92,PASS
+Unique Micro IDs,92,92,PASS
+Unique plots,92,92,PASS
+Unique Fiber IDs,92,92,PASS
+Unique MiniSpin runs,92,92,PASS
+Recognized genotype records,92,92,PASS
+Unrecognized genotype records,0,0,PASS
+AFIS raw rows,368,368,PASS
+AFIS completeness rows,92,92,PASS
+Samples with all four AFIS stages,92,92,PASS
+Samples with duplicate AFIS stages,0,0,PASS
+Samples with processing records,92,92,PASS
+Samples with complete core identifiers,92,92,PASS
+Samples passing complete-key check,92,92,PASS
+Duplicate field-sample IDs,0,0,PASS
+Duplicate Micro IDs,0,0,PASS
+Duplicate Fiber IDs,0,0,PASS
+Duplicate MiniSpin runs,0,0,PASS

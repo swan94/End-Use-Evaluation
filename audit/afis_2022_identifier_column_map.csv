@@ -1,0 +1,4 @@
+analysis_variable,source_column
+AFIS Fiber ID,sample
+MiniSpin run,run_number
+Processing stage,processing_stage

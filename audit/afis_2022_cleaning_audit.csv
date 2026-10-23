@@ -1,0 +1,16 @@
+check,observed,expected,status
+Raw AFIS rows,368,368,PASS
+Expected raw AFIS rows,368,368,PASS
+Unique base Fiber IDs,92,92,PASS
+Unique MiniSpin runs,92,92,PASS
+Unique field samples matched,92,92,PASS
+Bale records,92,92,PASS
+Opened records,92,92,PASS
+Carded records,92,92,PASS
+Sliver records,92,92,PASS
+Samples with all four stages,92,92,PASS
+Unmatched sample-stage records,0,0,PASS
+Duplicate sample-stage-trait records,0,0,PASS
+Long-format rows,7360,,INFORMATION
+Sample-stage wide rows,368,368,PASS
+Fully wide rows,92,92,PASS

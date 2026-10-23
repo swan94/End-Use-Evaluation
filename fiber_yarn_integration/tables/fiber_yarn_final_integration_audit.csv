@@ -1,0 +1,12 @@
+check,result
+Matched samples,92
+Formal NIIL samples,64
+Initial fiber predictors,10
+All fiber/processing predictors,26
+Primary yarn outcomes,8
+"Raw correlation tests, formal NIILs",208
+Adjusted fiber-yarn models attempted,208
+Adjusted models with numeric predictor p-value,208
+Adjusted models singular,76
+AFIS processing-stage data included,0
+NIL pairs in pair-difference analysis,8

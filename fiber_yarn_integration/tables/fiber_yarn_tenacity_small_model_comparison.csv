@@ -1,0 +1,4 @@
+model,n,predictors,AIC,BIC,logLik,singular
+HVI,64,hvi_microgin_UHML; hvi_microgin_STR; hvi_microgin_MIC,207.56388407012713,235.62936415380287,-90.78194203506357,TRUE
+AFIS,64,afis_microgin_UQLw; afis_microgin_SFCn; afis_microgin_Fine; afis_microgin_MatRatio,209.01273351777257,239.23709668480797,-90.50636675888629,TRUE
+Fibrogram,64,fibrogram_microgin_UQLf; fibrogram_microgin_SFCf,212.1143169922836,238.02091399259965,-94.0571584961418,TRUE

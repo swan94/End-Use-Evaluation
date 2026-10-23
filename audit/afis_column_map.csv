@@ -1,0 +1,4 @@
+variable,source_column
+fiber_id,sample
+processing_stage,processing_stage
+minispin_run,run_number

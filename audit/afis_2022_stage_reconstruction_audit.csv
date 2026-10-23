@@ -1,0 +1,5 @@
+afis_suffix,stage_from_suffix,processing_stage,stage_agreement,n_records
+None,Bale,Bale,TRUE,92
+A,Opened,Opened,TRUE,92
+B,Carded,Carded,TRUE,92
+C3,Sliver,Sliver,TRUE,92

@@ -1,0 +1,9 @@
+variable,source_column
+field_sample_id,sample
+genotype,name
+micro_id,micro_id
+plot,plot
+fiber_id,fiber_id
+minispin_run,run_number
+hvi_length_for_ratch,hvi_length
+ratch,ratch
